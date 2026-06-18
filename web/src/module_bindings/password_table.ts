@@ -11,11 +11,6 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  id: __t.u64().primaryKey(),
-  owner: __t.identity(),
-  name: __t.string(),
-  ownerNameKey: __t.string().name("owner_name_key"),
-  content: __t.string(),
-  createdAt: __t.timestamp().name("created_at"),
-  updatedAt: __t.timestamp().name("updated_at"),
+  user: __t.identity().primaryKey(),
+  passwordHash: __t.string().name("password_hash"),
 });

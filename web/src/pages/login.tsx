@@ -1,12 +1,8 @@
 import * as React from "react";
-import { Cloud, KeyRound, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { Cloud, Loader2 } from "lucide-react";
 
-import { useAuth } from "@/lib/auth";
 import { reportError } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -15,48 +11,60 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/lib/auth";
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function LoginPage() {
-  const { status, identityHex, isAuthenticated, signUp, signIn } = useAuth();
-  const [name, setName] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
+  const { signIn, signUp } = useAuth();
 
-  React.useEffect(() => {
-    if (isAuthenticated) toast.success("Welcome back!");
-  }, [isAuthenticated]);
+  const [mode, setMode] = React.useState<"sign-in" | "sign-up">("sign-in");
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [displayName, setDisplayName] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const handleSignUp = async () => {
-    setBusy(true);
-    try {
-      await signUp(name.trim() || undefined);
-      toast.success("Account created.");
-    } catch (err) {
-      reportError(err, "Sign up failed");
-    } finally {
-      setBusy(false);
+  const isSignUp = mode === "sign-up";
+
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+
+    const trimmedEmail = email.trim();
+    if (!EMAIL_PATTERN.test(trimmedEmail)) {
+      setError("Please enter a valid email address.");
+      return;
     }
-  };
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
 
-  const handleSignIn = async () => {
-    setBusy(true);
+    setSubmitting(true);
     try {
-      await signIn();
-      toast.success("Signed in.");
+      if (isSignUp) {
+        const trimmedName = displayName.trim();
+        await signUp(
+          trimmedEmail,
+          password,
+          trimmedName.length > 0 ? trimmedName : undefined
+        );
+      } else {
+        await signIn(trimmedEmail, password);
+      }
     } catch (err) {
+      const message =
+        err instanceof Error ? err.message : typeof err === "string" ? err : null;
+      setError(message ?? "Sign in failed.");
       reportError(err, "Sign in failed");
     } finally {
-      setBusy(false);
+      setSubmitting(false);
     }
   };
-
-  if (status === "connecting") {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-full items-center justify-center p-4">
@@ -67,43 +75,112 @@ export function LoginPage() {
           </div>
           <CardTitle>SpaceNix</CardTitle>
           <CardDescription>
-            Sync files, configs, and secrets across your devices.
+            Sync files and secrets across your devices.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Display name (optional)</Label>
-            <Input
-              id="name"
-              placeholder="hannah"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleSignUp();
-              }}
-              maxLength={128}
-            />
-          </div>
-          <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5 font-medium text-foreground">
-              <KeyRound className="size-3.5" /> Your identity
+        <CardContent>
+          <form
+            id="credentials-form"
+            onSubmit={onSubmit}
+            className="space-y-4"
+            autoComplete="off"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="username"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                disabled={submitting}
+                placeholder="you@example.com"
+              />
             </div>
-            <div className="mt-1 break-all font-mono text-[11px]">{identityHex || "—"}</div>
-            <p className="mt-2">
-              SpacetimeDB identifies you by a key generated in your browser. Create an account to
-              bind this identity, or sign in if it already exists.
-            </p>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete={isSignUp ? "new-password" : "current-password"}
+                required
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                disabled={submitting}
+                placeholder="Your data will be encypted using this password, please choose a secure password."
+              />
+            </div>
+            {isSignUp ? (
+              <div className="space-y-2">
+                <Label htmlFor="display-name">Display name (optional)</Label>
+                <Input
+                  id="display-name"
+                  name="displayName"
+                  type="text"
+                  autoComplete="nickname"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  disabled={submitting}
+                  maxLength={128}
+                  placeholder="What should we call you?"
+                />
+              </div>
+            ) : null}
+            {error ? (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </form>
         </CardContent>
         <Separator />
         <CardFooter className="flex flex-col gap-2 p-6">
-          <Button className="w-full" disabled={busy} onClick={handleSignUp}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-            Create account
+          <Button
+            type="submit"
+            form="credentials-form"
+            className="w-full"
+            disabled={submitting}
+          >
+            {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
+            {isSignUp ? "Create account" : "Sign in"}
           </Button>
-          <Button className="w-full" variant="outline" disabled={busy} onClick={handleSignIn}>
-            I already have an account
-          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            {isSignUp ? (
+              <>
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setMode("sign-in");
+                    setError(null);
+                  }}
+                  disabled={submitting}
+                >
+                  Sign in
+                </button>
+              </>
+            ) : (
+              <>
+                New to SpaceNix?{" "}
+                <button
+                  type="button"
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setMode("sign-up");
+                    setError(null);
+                  }}
+                  disabled={submitting}
+                >
+                  Create an account
+                </button>
+              </>
+            )}
+          </p>
         </CardFooter>
       </Card>
     </div>

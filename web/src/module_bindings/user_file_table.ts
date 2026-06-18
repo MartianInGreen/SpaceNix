@@ -14,9 +14,13 @@ export default __t.row({
   id: __t.u64().primaryKey(),
   owner: __t.identity(),
   name: __t.string(),
+  path: __t.option(__t.string()),
   hash: __t.string(),
   sizeBytes: __t.u64().name("size_bytes"),
   contentType: __t.option(__t.string()).name("content_type"),
+  inlineContent: __t.option(__t.string()).name("inline_content"),
+  isDirectory: __t.bool().name("is_directory"),
   s3Key: __t.string().name("s_3_key"),
   createdAt: __t.timestamp().name("created_at"),
+  updatedAt: __t.timestamp().name("updated_at"),
 });

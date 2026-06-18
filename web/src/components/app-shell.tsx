@@ -2,8 +2,6 @@ import * as React from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Cloud,
-  Cog,
-  FileCode,
   FilesIcon,
   KeyRound,
   Laptop,
@@ -32,14 +30,13 @@ import {
 
 const NAV = [
   { to: "/files", label: "Files", icon: FilesIcon },
-  { to: "/configs", label: "Configs", icon: FileCode },
   { to: "/secrets", label: "Secrets", icon: KeyRound },
   { to: "/pats", label: "PATs", icon: KeyRound },
   { to: "/devices", label: "Devices", icon: Laptop },
 ] as const;
 
 export function AppShell() {
-  const { displayName, identityHex, logout } = useAuth();
+  const { displayName, email, identityHex, role, signOut } = useAuth();
   const { theme, toggle } = useTheme();
   const location = useLocation();
 
@@ -74,9 +71,14 @@ export function AppShell() {
           <div className="rounded-md border bg-card p-3 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Signed in</span>
-              <Cog className="size-3.5 text-muted-foreground" />
+              <Badge variant={role === "admin" ? "default" : "secondary"}>{role ?? "user"}</Badge>
             </div>
-            <div className="mt-1 truncate font-medium">{displayName ?? "anonymous"}</div>
+            <div className="mt-1 truncate font-medium">{displayName ?? email ?? "anonymous"}</div>
+            {email ? (
+              <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                {email}
+              </div>
+            ) : null}
             <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
               {identityHex}
             </div>
@@ -102,13 +104,13 @@ export function AppShell() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Log out?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This disconnects from SpacetimeDB and clears your local session token. Your data
-                  stays on the server, tied to your identity.
+                  This disconnects from SpacetimeDB and ends your current session on this device.
+                  Your data stays on the server, tied to your account.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={logout}>Log out</AlertDialogAction>
+                <AlertDialogAction onClick={() => void signOut()}>Log out</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

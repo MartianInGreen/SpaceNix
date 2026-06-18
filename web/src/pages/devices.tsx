@@ -50,7 +50,7 @@ export function DevicesPage() {
     <div>
       <PageHeader
         title="Devices"
-        description="Machines that can receive your synced files, configs, and secrets."
+        description="Devices that receive your files and secrets."
         actions={
           <Button onClick={() => setRegisterOpen(true)} className="gap-2">
             <Plus className="size-4" /> Register device
@@ -87,7 +87,7 @@ export function DevicesPage() {
         <EmptyState
           icon={Laptop}
           title="No devices registered"
-          description="Register a device (e.g. your laptop, a server, or a CI runner) to assign secrets and sync configs to it."
+          description="Register a device to receive files and secrets."
           action={
             <Button onClick={() => setRegisterOpen(true)} className="gap-2">
               <Plus className="size-4" /> Register device

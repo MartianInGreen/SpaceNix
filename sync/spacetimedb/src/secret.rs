@@ -2,7 +2,9 @@ use spacetimedb::{
     Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, procedure, view,
 };
 
-#[spacetimedb::table(accessor = user_secret, public)]
+use crate::user::{require_registered_user, session as _, session__view as _};
+
+#[spacetimedb::table(accessor = user_secret)]
 pub struct UserSecret {
     #[primary_key]
     #[auto_inc]
@@ -103,6 +105,7 @@ pub fn set_secret(
     device_ids: Vec<String>,
     permissions: Vec<String>,
 ) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     if !is_valid_env(&env) {
         return Err("env must be non-empty and contain only [A-Za-z0-9_.]".to_string());
     }
@@ -112,7 +115,7 @@ pub fn set_secret(
     validate_device_ids(&device_ids)?;
     let permissions = normalize_permissions(permissions)?;
 
-    let owner = ctx.sender();
+    let owner = user.identity;
     let existing = ctx
         .db
         .user_secret()
@@ -146,6 +149,7 @@ pub fn set_secret(
 
 #[spacetimedb::reducer]
 pub fn set_secret_value(ctx: &ReducerContext, id: u64, value: String) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     if value.is_empty() {
         return Err("value cannot be empty".to_string());
     }
@@ -155,7 +159,7 @@ pub fn set_secret_value(ctx: &ReducerContext, id: u64, value: String) -> Result<
         .id()
         .find(id)
         .ok_or_else(|| "secret not found".to_string())?;
-    if secret.owner != ctx.sender() {
+    if secret.owner != user.identity {
         return Err("not your secret".to_string());
     }
     secret.value = value;
@@ -170,6 +174,7 @@ pub fn set_secret_devices(
     id: u64,
     device_ids: Vec<String>,
 ) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     validate_device_ids(&device_ids)?;
     let mut secret = ctx
         .db
@@ -177,7 +182,7 @@ pub fn set_secret_devices(
         .id()
         .find(id)
         .ok_or_else(|| "secret not found".to_string())?;
-    if secret.owner != ctx.sender() {
+    if secret.owner != user.identity {
         return Err("not your secret".to_string());
     }
     secret.device_ids = device_ids;
@@ -192,6 +197,7 @@ pub fn set_secret_permissions(
     id: u64,
     permissions: Vec<String>,
 ) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let permissions = normalize_permissions(permissions)?;
     let mut secret = ctx
         .db
@@ -199,7 +205,7 @@ pub fn set_secret_permissions(
         .id()
         .find(id)
         .ok_or_else(|| "secret not found".to_string())?;
-    if secret.owner != ctx.sender() {
+    if secret.owner != user.identity {
         return Err("not your secret".to_string());
     }
     secret.permissions = permissions;
@@ -210,13 +216,14 @@ pub fn set_secret_permissions(
 
 #[spacetimedb::reducer]
 pub fn delete_secret(ctx: &ReducerContext, id: u64) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let row = ctx
         .db
         .user_secret()
         .id()
         .find(id)
         .ok_or_else(|| "secret not found".to_string())?;
-    if row.owner != ctx.sender() {
+    if row.owner != user.identity {
         return Err("not your secret".to_string());
     }
     ctx.db.user_secret().id().delete(id);
@@ -225,10 +232,13 @@ pub fn delete_secret(ctx: &ReducerContext, id: u64) -> Result<(), String> {
 
 #[view(accessor = my_secrets, public)]
 fn my_secrets(ctx: &ViewContext) -> Vec<SecretMetadata> {
+    let Some(user) = ctx.db.session().connection().find(ctx.sender()).map(|s| s.user) else {
+        return Vec::new();
+    };
     ctx.db
         .user_secret()
         .owner()
-        .filter(ctx.sender())
+        .filter(user)
         .map(SecretMetadata::from)
         .collect()
 }
@@ -240,12 +250,19 @@ pub fn get_secret(
 ) -> Result<Option<SecretMetadata>, String> {
     let sender = ctx.sender();
     ctx.try_with_tx(|tx| -> Result<Option<SecretMetadata>, String> {
+        let user = tx
+            .db
+            .session()
+            .connection()
+            .find(sender)
+            .map(|s| s.user)
+            .ok_or_else(|| "sign in first".to_string())?;
         Ok(tx
             .db
             .user_secret()
             .id()
             .find(id)
-            .filter(|s| s.owner == sender)
+            .filter(|s| s.owner == user)
             .map(SecretMetadata::from))
     })
 }
@@ -257,12 +274,19 @@ pub fn reveal_secret(
 ) -> Result<Option<SecretValue>, String> {
     let sender = ctx.sender();
     ctx.try_with_tx(|tx| -> Result<Option<SecretValue>, String> {
+        let user = tx
+            .db
+            .session()
+            .connection()
+            .find(sender)
+            .map(|s| s.user)
+            .ok_or_else(|| "sign in first".to_string())?;
         Ok(tx
             .db
             .user_secret()
             .id()
             .find(id)
-            .filter(|s| s.owner == sender)
+            .filter(|s| s.owner == user)
             .map(|s| SecretValue {
                 id: s.id,
                 env: s.env,

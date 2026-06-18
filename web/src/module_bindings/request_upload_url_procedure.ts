@@ -16,6 +16,7 @@ import {
 
 export const params = {
   name: __t.string(),
+  path: __t.option(__t.string()),
   contentType: __t.option(__t.string()),
 };
 export const returnType = __t.result(UploadTicket, __t.string())

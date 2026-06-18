@@ -11,12 +11,13 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  id: __t.u32().primaryKey(),
+  id: __t.u32(),
+  configured: __t.bool(),
   bucket: __t.string(),
   region: __t.string(),
   endpoint: __t.option(__t.string()),
-  accessKeyId: __t.string().name("access_key_id"),
-  secretAccessKey: __t.string().name("secret_access_key"),
   pathPrefix: __t.option(__t.string()).name("path_prefix"),
   publicBaseUrl: __t.option(__t.string()).name("public_base_url"),
+  hasAccessKeyId: __t.bool().name("has_access_key_id"),
+  hasSecretAccessKey: __t.bool().name("has_secret_access_key"),
 });

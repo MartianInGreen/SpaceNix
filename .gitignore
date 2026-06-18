@@ -1,3 +1,5 @@
 service/target/*
 sync/spacetimedb/target/*
 tui/target/*
+.env
+*/.env

@@ -64,13 +64,23 @@ export type DeviceMetadata = __Infer<typeof DeviceMetadata>;
 export const FileMetadata = __t.object("FileMetadata", {
   id: __t.u64(),
   name: __t.string(),
+  path: __t.option(__t.string()),
   hash: __t.string(),
   sizeBytes: __t.u64(),
   contentType: __t.option(__t.string()),
+  inlineContent: __t.option(__t.string()),
+  isDirectory: __t.bool(),
   s3Key: __t.string(),
   createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
 });
 export type FileMetadata = __Infer<typeof FileMetadata>;
+
+export const PasswordCredential = __t.object("PasswordCredential", {
+  user: __t.identity(),
+  passwordHash: __t.string(),
+});
+export type PasswordCredential = __Infer<typeof PasswordCredential>;
 
 export const Person = __t.object("Person", {
   name: __t.string(),
@@ -96,6 +106,19 @@ export const S3Config = __t.object("S3Config", {
 });
 export type S3Config = __Infer<typeof S3Config>;
 
+export const S3ConfigStatus = __t.object("S3ConfigStatus", {
+  id: __t.u32(),
+  configured: __t.bool(),
+  bucket: __t.string(),
+  region: __t.string(),
+  endpoint: __t.option(__t.string()),
+  pathPrefix: __t.option(__t.string()),
+  publicBaseUrl: __t.option(__t.string()),
+  hasAccessKeyId: __t.bool(),
+  hasSecretAccessKey: __t.bool(),
+});
+export type S3ConfigStatus = __Infer<typeof S3ConfigStatus>;
+
 export const SecretMetadata = __t.object("SecretMetadata", {
   id: __t.u64(),
   env: __t.string(),
@@ -117,6 +140,13 @@ export const SecretValue = __t.object("SecretValue", {
 });
 export type SecretValue = __Infer<typeof SecretValue>;
 
+export const Session = __t.object("Session", {
+  connection: __t.identity(),
+  user: __t.identity(),
+  createdAt: __t.timestamp(),
+});
+export type Session = __Infer<typeof Session>;
+
 export const UploadTicket = __t.object("UploadTicket", {
   fileId: __t.u64(),
   uploadUrl: __t.string(),
@@ -126,48 +156,35 @@ export type UploadTicket = __Infer<typeof UploadTicket>;
 
 export const User = __t.object("User", {
   identity: __t.identity(),
+  email: __t.string(),
   displayName: __t.option(__t.string()),
+  role: __t.string(),
   createdAt: __t.timestamp(),
   lastLoginAt: __t.timestamp(),
 });
 export type User = __Infer<typeof User>;
 
-export const UserConfig = __t.object("UserConfig", {
-  id: __t.u64(),
-  owner: __t.identity(),
-  name: __t.string(),
-  ownerNameKey: __t.string(),
-  content: __t.string(),
-  createdAt: __t.timestamp(),
-  updatedAt: __t.timestamp(),
-});
-export type UserConfig = __Infer<typeof UserConfig>;
-
-export const UserConfigMetadata = __t.object("UserConfigMetadata", {
-  id: __t.u64(),
-  owner: __t.identity(),
-  name: __t.string(),
-  content: __t.string(),
-  createdAt: __t.timestamp(),
-  updatedAt: __t.timestamp(),
-});
-export type UserConfigMetadata = __Infer<typeof UserConfigMetadata>;
-
 export const UserFile = __t.object("UserFile", {
   id: __t.u64(),
   owner: __t.identity(),
   name: __t.string(),
+  path: __t.option(__t.string()),
   hash: __t.string(),
   sizeBytes: __t.u64(),
   contentType: __t.option(__t.string()),
+  inlineContent: __t.option(__t.string()),
+  isDirectory: __t.bool(),
   s3Key: __t.string(),
   createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
 });
 export type UserFile = __Infer<typeof UserFile>;
 
 export const UserProfile = __t.object("UserProfile", {
   identity: __t.identity(),
+  email: __t.string(),
   displayName: __t.option(__t.string()),
+  role: __t.string(),
   createdAt: __t.timestamp(),
   lastLoginAt: __t.timestamp(),
 });

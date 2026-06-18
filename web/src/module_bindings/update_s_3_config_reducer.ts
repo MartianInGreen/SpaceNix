@@ -14,8 +14,8 @@ export default {
   bucket: __t.string(),
   region: __t.string(),
   endpoint: __t.option(__t.string()),
-  accessKeyId: __t.string(),
-  secretAccessKey: __t.string(),
+  accessKeyId: __t.option(__t.string()),
+  secretAccessKey: __t.option(__t.string()),
   pathPrefix: __t.option(__t.string()),
   publicBaseUrl: __t.option(__t.string()),
 };

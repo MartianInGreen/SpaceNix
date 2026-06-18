@@ -13,4 +13,5 @@ import {
 export default {
   fileId: __t.u64(),
   name: __t.string(),
+  path: __t.option(__t.string()),
 };

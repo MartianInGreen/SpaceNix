@@ -12,7 +12,9 @@ import {
 
 export default __t.row({
   identity: __t.identity().primaryKey(),
+  email: __t.string(),
   displayName: __t.option(__t.string()).name("display_name"),
+  role: __t.string(),
   createdAt: __t.timestamp().name("created_at"),
   lastLoginAt: __t.timestamp().name("last_login_at"),
 });

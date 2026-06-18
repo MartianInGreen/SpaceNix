@@ -3,7 +3,7 @@ use spacetimedb::{
     rand::RngCore, view,
 };
 
-use crate::user::user as _;
+use crate::user::{require_registered_user, session as _, session__view as _};
 
 const API_KEY_PREFIX: &str = "snx_";
 const TOKEN_BYTES: usize = 32;
@@ -57,10 +57,13 @@ impl From<ApiKey> for ApiKeyMetadata {
 
 #[view(accessor = my_api_keys, public)]
 fn my_api_keys(ctx: &ViewContext) -> Vec<ApiKeyMetadata> {
+    let Some(user) = ctx.db.session().connection().find(ctx.sender()).map(|s| s.user) else {
+        return Vec::new();
+    };
     ctx.db
         .api_key()
         .owner()
-        .filter(ctx.sender())
+        .filter(user)
         .map(ApiKeyMetadata::from)
         .collect()
 }
@@ -71,7 +74,7 @@ pub fn create_api_key(
     name: String,
     permissions: Vec<String>,
 ) -> Result<CreatedApiKey, String> {
-    let owner = ctx.sender();
+    let sender = ctx.sender();
     let name = validate_name(name)?;
     let permissions = normalize_permissions(permissions)?;
 
@@ -82,9 +85,13 @@ pub fn create_api_key(
     let now = ctx.timestamp;
 
     let inserted = ctx.try_with_tx(|tx| -> Result<ApiKey, String> {
-        if tx.db.user().identity().find(owner).is_none() {
-            return Err("identity is not registered".to_string());
-        }
+        let owner = tx
+            .db
+            .session()
+            .connection()
+            .find(sender)
+            .map(|s| s.user)
+            .ok_or_else(|| "sign in first".to_string())?;
         Ok(tx.db.api_key().insert(ApiKey {
             id: 0,
             owner,
@@ -105,13 +112,14 @@ pub fn create_api_key(
 
 #[spacetimedb::reducer]
 pub fn revoke_api_key(ctx: &ReducerContext, api_key_id: u64) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let key = ctx
         .db
         .api_key()
         .id()
         .find(api_key_id)
         .ok_or_else(|| "api key not found".to_string())?;
-    if key.owner != ctx.sender() {
+    if key.owner != user.identity {
         return Err("not your api key".to_string());
     }
     ctx.db.api_key().id().update(ApiKey {
@@ -127,13 +135,14 @@ pub fn update_api_key_permissions(
     api_key_id: u64,
     permissions: Vec<String>,
 ) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let key = ctx
         .db
         .api_key()
         .id()
         .find(api_key_id)
         .ok_or_else(|| "api key not found".to_string())?;
-    if key.owner != ctx.sender() {
+    if key.owner != user.identity {
         return Err("not your api key".to_string());
     }
     ctx.db.api_key().id().update(ApiKey {

@@ -3,28 +3,37 @@ import * as React from "react";
 import { useSpacetimeDB, useTable, useReducer } from "spacetimedb/react";
 import { reducers, tables } from "@/module_bindings";
 
-import { clearStoredToken, identityHex, storeToken } from "@/lib/stdb";
+import { identityHex } from "@/lib/stdb";
 
 export interface AuthState {
   status: "connecting" | "connected" | "error";
   identityHex: string;
   isAuthenticated: boolean;
+  email: string | null;
   displayName: string | null;
+  role: string | null;
+  isAdmin: boolean;
   error?: string;
 }
 
 export interface AuthContextValue extends AuthState {
-  signUp: (displayName?: string) => Promise<void>;
-  signIn: () => Promise<void>;
-  logout: () => void;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (
+    email: string,
+    password: string,
+    displayName?: string
+  ) => Promise<void>;
+  signOut: () => Promise<void>;
+  /** Force a hard disconnect and reconnect with a fresh anonymous identity. */
+  hardReset: () => void;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
 
 /**
  * Holds a session nonce used to force the SpacetimeDBProvider to remount with a
- * fresh anonymous identity on logout. Lives above the connection provider so it
- * does not depend on an active connection.
+ * fresh anonymous identity on sign-out. Lives above the connection provider so
+ * it does not depend on an active connection.
  */
 const SessionKeyContext = React.createContext<{
   nonce: number;
@@ -51,15 +60,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [rows] = useTable(tables.my_user);
   const { bump } = useSessionKey();
 
-  const signUp = useReducer(reducers.signUp);
-  const signIn = useReducer(reducers.signIn);
+  const signInReducer = useReducer(reducers.signIn);
+  const signUpReducer = useReducer(reducers.signUp);
+  const signOutReducer = useReducer(reducers.signOut);
 
   const user = rows[0];
   const identityHexVal = identityHex(conn.identity);
-
-  React.useEffect(() => {
-    if (conn.token) storeToken(conn.token);
-  }, [conn.token]);
 
   const status: AuthState["status"] = conn.connectionError
     ? "error"
@@ -71,16 +77,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     status,
     identityHex: identityHexVal,
     isAuthenticated: Boolean(user),
+    email: user?.email ?? null,
     displayName: user?.displayName ?? null,
+    role: user?.role ?? null,
+    isAdmin: user?.role === "admin",
     error: conn.connectionError?.message,
-    signUp: async (displayName?: string) => {
-      await signUp({ displayName: displayName });
+    signIn: async (email, password) => {
+      await signInReducer({ email, password });
     },
-    signIn: async () => {
-      await signIn();
+    signUp: async (email, password, displayName) => {
+      await signUpReducer({ email, password, displayName: displayName ?? undefined });
     },
-    logout: () => {
-      clearStoredToken();
+    signOut: async () => {
+      try {
+        await signOutReducer();
+      } catch {
+        // If the server-side sign-out fails (e.g. we were never signed in),
+        // still drop the local connection.
+      }
+      try {
+        conn.getConnection()?.disconnect();
+      } catch {
+        /* ignore */
+      }
+      bump();
+    },
+    hardReset: () => {
       try {
         conn.getConnection()?.disconnect();
       } catch {

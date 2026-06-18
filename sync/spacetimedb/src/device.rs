@@ -1,6 +1,6 @@
-use spacetimedb::{
-    Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, view,
-};
+use spacetimedb::{Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, view};
+
+use crate::user::{require_registered_user, session__view as _};
 
 #[spacetimedb::table(accessor = device, public)]
 pub struct Device {
@@ -69,11 +69,12 @@ pub fn register_device(
     name: String,
     hostname: Option<String>,
 ) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let name = validate_name(name)?;
     let hostname = normalize_hostname(hostname)?;
     ctx.db.device().insert(Device {
         id: 0,
-        owner: ctx.sender(),
+        owner: user.identity,
         name,
         hostname,
         created_at: ctx.timestamp,
@@ -83,11 +84,8 @@ pub fn register_device(
 }
 
 #[spacetimedb::reducer]
-pub fn rename_device(
-    ctx: &ReducerContext,
-    device_id: u64,
-    name: String,
-) -> Result<(), String> {
+pub fn rename_device(ctx: &ReducerContext, device_id: u64, name: String) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let name = validate_name(name)?;
     let mut device = ctx
         .db
@@ -95,7 +93,7 @@ pub fn rename_device(
         .id()
         .find(device_id)
         .ok_or_else(|| "device not found".to_string())?;
-    if device.owner != ctx.sender() {
+    if device.owner != user.identity {
         return Err("not your device".to_string());
     }
     device.name = name;
@@ -109,6 +107,7 @@ pub fn set_device_hostname(
     device_id: u64,
     hostname: Option<String>,
 ) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let hostname = normalize_hostname(hostname)?;
     let mut device = ctx
         .db
@@ -116,7 +115,7 @@ pub fn set_device_hostname(
         .id()
         .find(device_id)
         .ok_or_else(|| "device not found".to_string())?;
-    if device.owner != ctx.sender() {
+    if device.owner != user.identity {
         return Err("not your device".to_string());
     }
     device.hostname = hostname;
@@ -126,13 +125,14 @@ pub fn set_device_hostname(
 
 #[spacetimedb::reducer]
 pub fn touch_device(ctx: &ReducerContext, device_id: u64) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let mut device = ctx
         .db
         .device()
         .id()
         .find(device_id)
         .ok_or_else(|| "device not found".to_string())?;
-    if device.owner != ctx.sender() {
+    if device.owner != user.identity {
         return Err("not your device".to_string());
     }
     device.last_seen_at = Some(ctx.timestamp);
@@ -142,13 +142,14 @@ pub fn touch_device(ctx: &ReducerContext, device_id: u64) -> Result<(), String> 
 
 #[spacetimedb::reducer]
 pub fn delete_device(ctx: &ReducerContext, device_id: u64) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
     let device = ctx
         .db
         .device()
         .id()
         .find(device_id)
         .ok_or_else(|| "device not found".to_string())?;
-    if device.owner != ctx.sender() {
+    if device.owner != user.identity {
         return Err("not your device".to_string());
     }
     ctx.db.device().id().delete(device_id);
@@ -157,10 +158,13 @@ pub fn delete_device(ctx: &ReducerContext, device_id: u64) -> Result<(), String>
 
 #[view(accessor = my_devices, public)]
 fn my_devices(ctx: &ViewContext) -> Vec<DeviceMetadata> {
+    let Some(user) = ctx.db.session().connection().find(ctx.sender()).map(|s| s.user) else {
+        return Vec::new();
+    };
     ctx.db
         .device()
         .owner()
-        .filter(ctx.sender())
+        .filter(user)
         .map(DeviceMetadata::from)
         .collect()
 }

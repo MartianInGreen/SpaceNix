@@ -5,12 +5,11 @@ import { Toaster } from "sonner";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import { DbConnection } from "@/module_bindings";
-import { STDB_MODULE, STDB_URI, loadStoredToken } from "@/lib/stdb";
+import { STDB_MODULE, STDB_URI } from "@/lib/stdb";
 import { AuthProvider, SessionKeyProvider, useAuth, useSessionKey } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
 import { LoginPage } from "@/pages/login";
 import { FilesPage } from "@/pages/files";
-import { ConfigsPage } from "@/pages/configs";
 import { SecretsPage } from "@/pages/secrets";
 import { PatsPage } from "@/pages/pats";
 import { DevicesPage } from "@/pages/devices";
@@ -22,14 +21,16 @@ const queryClient = new QueryClient({
 function buildConnectionBuilder() {
   return DbConnection.builder()
     .withUri(STDB_URI)
-    .withDatabaseName(STDB_MODULE)
-    .withToken(loadStoredToken());
+    .withDatabaseName(STDB_MODULE);
 }
 
 function ConnectionRoot() {
   const { nonce } = useSessionKey();
   return (
-    <SpacetimeDBProvider key={nonce} connectionBuilder={buildConnectionBuilder()}>
+    <SpacetimeDBProvider
+      key={nonce}
+      connectionBuilder={buildConnectionBuilder()}
+    >
       <AuthProvider>
         <Router />
       </AuthProvider>
@@ -76,7 +77,6 @@ function Router() {
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/files" replace />} />
         <Route path="files" element={<FilesPage />} />
-        <Route path="configs" element={<ConfigsPage />} />
         <Route path="secrets" element={<SecretsPage />} />
         <Route path="pats" element={<PatsPage />} />
         <Route path="devices" element={<DevicesPage />} />

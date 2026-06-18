@@ -11,5 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  configId: __t.u64(),
+  name: __t.string(),
+  path: __t.option(__t.string()),
 };

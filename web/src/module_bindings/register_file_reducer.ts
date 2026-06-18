@@ -12,6 +12,7 @@ import {
 
 export default {
   name: __t.string(),
+  path: __t.option(__t.string()),
   hash: __t.string(),
   sizeBytes: __t.u64(),
   contentType: __t.option(__t.string()),
