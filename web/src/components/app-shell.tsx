@@ -1,0 +1,138 @@
+import * as React from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import {
+  Cloud,
+  Cog,
+  FileCode,
+  FilesIcon,
+  KeyRound,
+  Laptop,
+  LogOut,
+  Moon,
+  Sun,
+} from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
+import { useTheme } from "@/lib/use-theme";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
+const NAV = [
+  { to: "/files", label: "Files", icon: FilesIcon },
+  { to: "/configs", label: "Configs", icon: FileCode },
+  { to: "/secrets", label: "Secrets", icon: KeyRound },
+  { to: "/pats", label: "PATs", icon: KeyRound },
+  { to: "/devices", label: "Devices", icon: Laptop },
+] as const;
+
+export function AppShell() {
+  const { displayName, identityHex, logout } = useAuth();
+  const { theme, toggle } = useTheme();
+  const location = useLocation();
+
+  return (
+    <div className="flex h-full w-full">
+      <aside className="hidden w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
+        <div className="flex h-14 items-center gap-2 border-b px-4">
+          <Cloud className="size-5" />
+          <span className="font-semibold tracking-tight">SpaceNix</span>
+        </div>
+        <nav className="flex flex-1 flex-col gap-1 p-3">
+          {NAV.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                )
+              }
+            >
+              <item.icon className="size-4" />
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+        <Separator />
+        <div className="p-3">
+          <div className="rounded-md border bg-card p-3 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Signed in</span>
+              <Cog className="size-3.5 text-muted-foreground" />
+            </div>
+            <div className="mt-1 truncate font-medium">{displayName ?? "anonymous"}</div>
+            <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+              {identityHex}
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+          <MobileNav current={location.pathname} />
+          <div className="flex-1" />
+          <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
+            {theme === "dark" ? <Sun /> : <Moon />}
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2">
+                <LogOut className="size-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Log out?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This disconnects from SpacetimeDB and clears your local session token. Your data
+                  stays on the server, tied to your identity.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={logout}>Log out</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </header>
+
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-6xl p-4 md:p-6">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function MobileNav({ current }: { current: string }) {
+  return (
+    <div className="flex items-center gap-1 md:hidden">
+      <span className="font-semibold tracking-tight">SpaceNix</span>
+      <Badge variant="secondary" className="ml-2 font-mono text-[10px]">
+        {current.replace("/", "") || "home"}
+      </Badge>
+    </div>
+  );
+}
+
+export { Link };

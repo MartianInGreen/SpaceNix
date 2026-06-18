@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="SpaceNix aperture logo">
+  <defs>
+    <linearGradient id="c3-blade-a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="c3-blade-b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f0b429"/>
+      <stop offset="1" stop-color="#7c2d12"/>
+    </linearGradient>
+    <radialGradient id="c3-core" cx="0.4" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="0.7" stop-color="#f0b429"/>
+      <stop offset="1" stop-color="#451a03"/>
+    </radialGradient>
+  </defs>
+
+  <circle cx="128" cy="128" r="104" fill="none" stroke="#7c2d12" stroke-opacity="0.35" stroke-width="2"/>
+
+  <g>
+    <polygon points="128,128 128,40 203,84" fill="url(#c3-blade-a)"/>
+    <polygon points="128,128 203,84 203,172" fill="url(#c3-blade-b)"/>
+    <polygon points="128,128 203,172 128,216" fill="url(#c3-blade-a)"/>
+    <polygon points="128,128 128,216 53,172" fill="url(#c3-blade-b)"/>
+    <polygon points="128,128 53,172 53,84" fill="url(#c3-blade-a)"/>
+    <polygon points="128,128 53,84 128,40" fill="url(#c3-blade-b)"/>
+  </g>
+
+  <polygon points="128,88 163,108 163,148 128,168 93,148 93,108" fill="url(#c3-core)"/>
+  <polygon points="128,88 163,108 163,148 128,168 93,148 93,108" fill="none" stroke="#451a03" stroke-opacity="0.4" stroke-width="1.5"/>
+
+  <circle cx="128" cy="128" r="14" fill="#fef3c7"/>
+  <circle cx="128" cy="128" r="14" fill="none" stroke="#7c2d12" stroke-width="2"/>
+</svg>
