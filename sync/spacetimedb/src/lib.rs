@@ -5,6 +5,7 @@ mod config;
 mod device;
 mod file;
 mod secret;
+mod ssh;
 mod user;
 
 use crate::config::s3_config as _;

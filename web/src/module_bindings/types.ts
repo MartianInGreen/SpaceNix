@@ -147,6 +147,79 @@ export const Session = __t.object("Session", {
 });
 export type Session = __Infer<typeof Session>;
 
+export const SshEndpoint = __t.object("SshEndpoint", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  name: __t.string(),
+  host: __t.string(),
+  port: __t.u16(),
+  username: __t.string(),
+  keyId: __t.u64(),
+  deviceIds: __t.array(__t.string()),
+  tags: __t.array(__t.string()),
+  enabled: __t.bool(),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type SshEndpoint = __Infer<typeof SshEndpoint>;
+
+export const SshEndpointMetadata = __t.object("SshEndpointMetadata", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  name: __t.string(),
+  host: __t.string(),
+  port: __t.u16(),
+  username: __t.string(),
+  keyId: __t.u64(),
+  deviceIds: __t.array(__t.string()),
+  tags: __t.array(__t.string()),
+  enabled: __t.bool(),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type SshEndpointMetadata = __Infer<typeof SshEndpointMetadata>;
+
+export const SshKey = __t.object("SshKey", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  name: __t.string(),
+  publicKey: __t.string(),
+  privateKey: __t.string(),
+  fingerprint: __t.string(),
+  deviceIds: __t.array(__t.string()),
+  tags: __t.array(__t.string()),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type SshKey = __Infer<typeof SshKey>;
+
+export const SshKeyMetadata = __t.object("SshKeyMetadata", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  name: __t.string(),
+  publicKey: __t.string(),
+  fingerprint: __t.string(),
+  deviceIds: __t.array(__t.string()),
+  tags: __t.array(__t.string()),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type SshKeyMetadata = __Infer<typeof SshKeyMetadata>;
+
+export const SshKeyValue = __t.object("SshKeyValue", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  name: __t.string(),
+  publicKey: __t.string(),
+  privateKey: __t.string(),
+  fingerprint: __t.string(),
+  deviceIds: __t.array(__t.string()),
+  tags: __t.array(__t.string()),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type SshKeyValue = __Infer<typeof SshKeyValue>;
+
 export const UploadTicket = __t.object("UploadTicket", {
   fileId: __t.u64(),
   uploadUrl: __t.string(),

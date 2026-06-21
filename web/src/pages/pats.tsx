@@ -7,8 +7,8 @@ import type { ApiKeyMetadata, CreatedApiKey } from "@/module_bindings/types";
 import { unwrap } from "@/lib/stdb";
 import { formatTimestamp, shortId } from "@/lib/utils";
 import { reportError, reportSuccess } from "@/lib/toast";
-import { PageHeader, EmptyState, ConfirmDelete, Spinner, ChipList } from "@/components/common";
-import { TagInput } from "@/components/tag-input";
+import { PageHeader, EmptyState, Spinner } from "@/components/common";
+import { PermissionChips, PermissionEditor, PermissionOverview } from "@/components/permission-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,8 +42,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-const PERMISSION_PATTERN = /^[A-Za-z0-9:._\-*]+$/;
-
 export function PatsPage() {
   const [rows, ready] = useTable(tables.my_api_keys);
   const createProc = useProcedure(procedures.createApiKey);
@@ -59,6 +57,7 @@ export function PatsPage() {
       [...rows].sort((a, b) => Number(b.createdAt.microsSinceUnixEpoch - a.createdAt.microsSinceUnixEpoch)),
     [rows]
   );
+  const activeKeys = React.useMemo(() => keys.filter((key) => !key.revokedAt), [keys]);
 
   return (
     <div>
@@ -113,96 +112,102 @@ export function PatsPage() {
           }
         />
       ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Permissions</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Last used</TableHead>
-                <TableHead className="w-32 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {keys.map((k) => {
-                const revoked = Boolean(k.revokedAt);
-                return (
-                  <TableRow key={String(k.id)} className={revoked ? "opacity-60" : undefined}>
-                    <TableCell className="font-medium">
-                      {k.name}
-                      <div className="font-mono text-[10px] text-muted-foreground">#{shortId(String(k.id), 4, 4)}</div>
-                    </TableCell>
-                    <TableCell>
-                      <ChipList items={k.permissions} />
-                    </TableCell>
-                    <TableCell>
-                      {revoked ? (
-                        <Badge variant="destructive" className="gap-1">
-                          <ShieldAlert className="size-3" /> revoked
-                        </Badge>
-                      ) : (
-                        <Badge variant="success" className="gap-1">
-                          <ShieldCheck className="size-3" /> active
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{formatTimestamp(k.createdAt)}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {k.lastUsedAt ? formatTimestamp(k.lastUsedAt) : "never"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Edit permissions"
-                          disabled={revoked}
-                          onClick={() => setEditing(k)}
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                        {revoked ? null : (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="sm" className="text-destructive">
-                                Revoke
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Revoke "{k.name}"?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  The token stops working immediately. This cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  onClick={async () => {
-                                    try {
-                                      await revoke({ apiKeyId: k.id });
-                                      reportSuccess("Token revoked.");
-                                    } catch (err) {
-                                      reportError(err);
-                                    }
-                                  }}
-                                >
-                                  Revoke
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+        <div>
+          <PermissionOverview
+            items={activeKeys.map((key) => ({ name: key.name, permissions: key.permissions }))}
+            emptyItemsLabel="Active tokens without grants"
+          />
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Permissions</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Last used</TableHead>
+                  <TableHead className="w-32 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {keys.map((k) => {
+                  const revoked = Boolean(k.revokedAt);
+                  return (
+                    <TableRow key={String(k.id)} className={revoked ? "opacity-60" : undefined}>
+                      <TableCell className="font-medium">
+                        {k.name}
+                        <div className="font-mono text-[10px] text-muted-foreground">#{shortId(String(k.id), 4, 4)}</div>
+                      </TableCell>
+                      <TableCell>
+                        <PermissionChips permissions={k.permissions} />
+                      </TableCell>
+                      <TableCell>
+                        {revoked ? (
+                          <Badge variant="destructive" className="gap-1">
+                            <ShieldAlert className="size-3" /> revoked
+                          </Badge>
+                        ) : (
+                          <Badge variant="success" className="gap-1">
+                            <ShieldCheck className="size-3" /> active
+                          </Badge>
                         )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{formatTimestamp(k.createdAt)}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {k.lastUsedAt ? formatTimestamp(k.lastUsedAt) : "never"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Edit permissions"
+                            disabled={revoked}
+                            onClick={() => setEditing(k)}
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                          {revoked ? null : (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="sm" className="text-destructive">
+                                  Revoke
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Revoke "{k.name}"?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    The token stops working immediately. This cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    onClick={async () => {
+                                      try {
+                                        await revoke({ apiKeyId: k.id });
+                                        reportSuccess("Token revoked.");
+                                      } catch (err) {
+                                        reportError(err);
+                                      }
+                                    }}
+                                  >
+                                    Revoke
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       )}
     </div>
@@ -248,7 +253,7 @@ function CreatePatDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New access token</DialogTitle>
           <DialogDescription>Choose a label and the permission grants this token will carry.</DialogDescription>
@@ -260,7 +265,7 @@ function CreatePatDialog({
           </div>
           <div className="space-y-2">
             <Label>Permissions</Label>
-            <TagInput values={permissions} onChange={setPermissions} pattern={PERMISSION_PATTERN} placeholder="files:read" />
+            <PermissionEditor values={permissions} onChange={setPermissions} />
           </div>
         </div>
         <DialogFooter>
@@ -368,14 +373,14 @@ function EditPermissionsDialog({
 
   return (
     <Dialog open={apikey !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit permissions · {apikey?.name ?? ""}</DialogTitle>
           <DialogDescription>Replace the permission grants carried by this token.</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label>Permissions</Label>
-          <TagInput values={permissions} onChange={setPermissions} pattern={PERMISSION_PATTERN} />
+          <PermissionEditor values={permissions} onChange={setPermissions} />
         </div>
         <Separator />
         <DialogFooter>

@@ -14,6 +14,7 @@ import * as ReplaceFileContentProcedure from "../replace_file_content_procedure"
 import * as RequestDownloadUrlProcedure from "../request_download_url_procedure";
 import * as RequestUploadUrlProcedure from "../request_upload_url_procedure";
 import * as RevealSecretProcedure from "../reveal_secret_procedure";
+import * as RevealSshKeyProcedure from "../reveal_ssh_key_procedure";
 import * as SearchFilesProcedure from "../search_files_procedure";
 import * as UpdateS3ConfigWithCredentialsProcedure from "../update_s_3_config_with_credentials_procedure";
 
@@ -33,6 +34,8 @@ export type RequestUploadUrlArgs = __Infer<typeof RequestUploadUrlProcedure.para
 export type RequestUploadUrlResult = __Infer<typeof RequestUploadUrlProcedure.returnType>;
 export type RevealSecretArgs = __Infer<typeof RevealSecretProcedure.params>;
 export type RevealSecretResult = __Infer<typeof RevealSecretProcedure.returnType>;
+export type RevealSshKeyArgs = __Infer<typeof RevealSshKeyProcedure.params>;
+export type RevealSshKeyResult = __Infer<typeof RevealSshKeyProcedure.returnType>;
 export type SearchFilesArgs = __Infer<typeof SearchFilesProcedure.params>;
 export type SearchFilesResult = __Infer<typeof SearchFilesProcedure.returnType>;
 export type UpdateS3ConfigWithCredentialsArgs = __Infer<typeof UpdateS3ConfigWithCredentialsProcedure.params>;

@@ -8,12 +8,14 @@ export function TagInput({
   values,
   onChange,
   placeholder = "Add and press Enter",
+  emptyLabel,
   pattern,
   disabled,
 }: {
   values: string[];
   onChange: (next: string[]) => void;
   placeholder?: string;
+  emptyLabel?: string;
   /** Regex that each value must fully match, or undefined to allow anything. */
   pattern?: RegExp;
   disabled?: boolean;
@@ -41,6 +43,9 @@ export function TagInput({
   return (
     <div className={cn("rounded-md border p-2", disabled && "opacity-60")}>
       <div className="flex flex-wrap gap-1.5">
+        {values.length === 0 && emptyLabel ? (
+          <span className="py-1 text-xs text-muted-foreground">{emptyLabel}</span>
+        ) : null}
         {values.map((v) => (
           <span
             key={v}

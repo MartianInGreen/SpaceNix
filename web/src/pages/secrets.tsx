@@ -8,7 +8,6 @@ import {
   Copy,
   Check,
   Pencil,
-  ShieldCheck,
   MonitorSmartphone,
 } from "lucide-react";
 
@@ -17,13 +16,12 @@ import type { DeviceMetadata, SecretMetadata, SecretValue } from "@/module_bindi
 import { unwrap } from "@/lib/stdb";
 import { cn, formatTimestamp } from "@/lib/utils";
 import { reportError, reportSuccess } from "@/lib/toast";
-import { PageHeader, EmptyState, ConfirmDelete, Spinner, ChipList } from "@/components/common";
-import { TagInput } from "@/components/tag-input";
+import { PageHeader, EmptyState, ConfirmDelete, Spinner } from "@/components/common";
+import { PermissionChips, PermissionEditor, PermissionOverview } from "@/components/permission-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -50,7 +48,6 @@ import {
 } from "@/components/ui/tabs";
 
 const ENV_PATTERN = /^[A-Za-z0-9_.]+$/;
-const PERMISSION_PATTERN = /^[A-Za-z0-9:._\-*]+$/;
 
 function deviceKey(id: bigint | number): string {
   return String(id);
@@ -150,56 +147,58 @@ export function SecretsPage() {
           }
         />
       ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Env</TableHead>
-                <TableHead>Devices</TableHead>
-                <TableHead>Permissions</TableHead>
-                <TableHead>Updated</TableHead>
-                <TableHead className="w-40 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {secrets.map((s) => (
-                <TableRow key={String(s.id)}>
-                  <TableCell className="font-mono font-medium">{s.env}</TableCell>
-                  <TableCell>
-                    {s.deviceIds.length === 0 ? (
-                      <span className="text-muted-foreground">all</span>
-                    ) : (
-                      <DeviceChips ids={s.deviceIds} deviceById={deviceById} />
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {s.permissions.length === 0 ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <ChipList items={s.permissions} />
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{formatTimestamp(s.updatedAt)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <RevealButton id={s.id} reveal={reveal} />
-                      <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => setEditing(s)}>
-                        <Pencil className="size-4" />
-                      </Button>
-                      <ConfirmDelete
-                        title={`Delete secret "${s.env}"?`}
-                        description="This permanently removes the secret value. Devices referencing it will no longer receive it."
-                        onConfirm={async () => {
-                          await deleteSecret({ id: s.id });
-                          reportSuccess("Secret deleted.");
-                        }}
-                      />
-                    </div>
-                  </TableCell>
+        <div>
+          <PermissionOverview
+            items={secrets.map((secret) => ({ name: secret.env, permissions: secret.permissions }))}
+            emptyItemsLabel="Secrets without permission gates"
+          />
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Env</TableHead>
+                  <TableHead>Devices</TableHead>
+                  <TableHead>Permissions</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="w-40 text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {secrets.map((s) => (
+                  <TableRow key={String(s.id)}>
+                    <TableCell className="font-mono font-medium">{s.env}</TableCell>
+                    <TableCell>
+                      {s.deviceIds.length === 0 ? (
+                        <span className="text-muted-foreground">all</span>
+                      ) : (
+                        <DeviceChips ids={s.deviceIds} deviceById={deviceById} />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <PermissionChips permissions={s.permissions} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatTimestamp(s.updatedAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <RevealButton id={s.id} reveal={reveal} />
+                        <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => setEditing(s)}>
+                          <Pencil className="size-4" />
+                        </Button>
+                        <ConfirmDelete
+                          title={`Delete secret "${s.env}"?`}
+                          description="This permanently removes the secret value. Devices referencing it will no longer receive it."
+                          onConfirm={async () => {
+                            await deleteSecret({ id: s.id });
+                            reportSuccess("Secret deleted.");
+                          }}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       )}
     </div>
@@ -430,7 +429,7 @@ function SecretDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit secret · ${secret?.env ?? ""}` : "New secret"}</DialogTitle>
           <DialogDescription>
@@ -489,7 +488,11 @@ function SecretDialog({
               </TabsContent>
               <TabsContent value="perms" className="mt-3 space-y-2">
                 <Label>Permissions</Label>
-                <TagInput values={permissions} onChange={setPermissions} pattern={PERMISSION_PATTERN} />
+                <PermissionEditor
+                  values={permissions}
+                  onChange={setPermissions}
+                  emptyLabel="No permission gate. Any matching device scope can receive this secret."
+                />
               </TabsContent>
             </Tabs>
           ) : (
@@ -511,7 +514,11 @@ function SecretDialog({
               </div>
               <div className="space-y-2">
                 <Label>Permissions (optional)</Label>
-                <TagInput values={permissions} onChange={setPermissions} pattern={PERMISSION_PATTERN} />
+                <PermissionEditor
+                  values={permissions}
+                  onChange={setPermissions}
+                  emptyLabel="No permission gate. Any matching device scope can receive this secret."
+                />
               </div>
             </div>
           )}

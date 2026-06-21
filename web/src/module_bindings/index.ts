@@ -38,6 +38,8 @@ import CreateFolderReducer from "./create_folder_reducer";
 import DeleteDeviceReducer from "./delete_device_reducer";
 import DeleteFileReducer from "./delete_file_reducer";
 import DeleteSecretReducer from "./delete_secret_reducer";
+import DeleteSshEndpointReducer from "./delete_ssh_endpoint_reducer";
+import DeleteSshKeyReducer from "./delete_ssh_key_reducer";
 import FinalizeUploadReducer from "./finalize_upload_reducer";
 import RegisterDeviceReducer from "./register_device_reducer";
 import RegisterFileReducer from "./register_file_reducer";
@@ -49,6 +51,14 @@ import SetSecretReducer from "./set_secret_reducer";
 import SetSecretDevicesReducer from "./set_secret_devices_reducer";
 import SetSecretPermissionsReducer from "./set_secret_permissions_reducer";
 import SetSecretValueReducer from "./set_secret_value_reducer";
+import SetSshEndpointReducer from "./set_ssh_endpoint_reducer";
+import SetSshEndpointDevicesReducer from "./set_ssh_endpoint_devices_reducer";
+import SetSshEndpointEnabledReducer from "./set_ssh_endpoint_enabled_reducer";
+import SetSshEndpointTagsReducer from "./set_ssh_endpoint_tags_reducer";
+import SetSshKeyReducer from "./set_ssh_key_reducer";
+import SetSshKeyDevicesReducer from "./set_ssh_key_devices_reducer";
+import SetSshKeyTagsReducer from "./set_ssh_key_tags_reducer";
+import SetSshKeyValueReducer from "./set_ssh_key_value_reducer";
 import SignInReducer from "./sign_in_reducer";
 import SignOutReducer from "./sign_out_reducer";
 import SignUpReducer from "./sign_up_reducer";
@@ -57,6 +67,7 @@ import UpdateApiKeyPermissionsReducer from "./update_api_key_permissions_reducer
 import UpdateEmailReducer from "./update_email_reducer";
 import UpdatePasswordReducer from "./update_password_reducer";
 import UpdateS3ConfigReducer from "./update_s_3_config_reducer";
+import UpdateSshEndpointReducer from "./update_ssh_endpoint_reducer";
 
 // Import all procedure arg schemas
 import * as ApiKeyHasPermissionProcedure from "./api_key_has_permission_procedure";
@@ -67,6 +78,7 @@ import * as ReplaceFileContentProcedure from "./replace_file_content_procedure";
 import * as RequestDownloadUrlProcedure from "./request_download_url_procedure";
 import * as RequestUploadUrlProcedure from "./request_upload_url_procedure";
 import * as RevealSecretProcedure from "./reveal_secret_procedure";
+import * as RevealSshKeyProcedure from "./reveal_ssh_key_procedure";
 import * as SearchFilesProcedure from "./search_files_procedure";
 import * as UpdateS3ConfigWithCredentialsProcedure from "./update_s_3_config_with_credentials_procedure";
 
@@ -75,6 +87,8 @@ import MyApiKeysRow from "./my_api_keys_table";
 import MyDevicesRow from "./my_devices_table";
 import MyFilesRow from "./my_files_table";
 import MySecretsRow from "./my_secrets_table";
+import MySshEndpointsRow from "./my_ssh_endpoints_table";
+import MySshKeysRow from "./my_ssh_keys_table";
 import MyUserRow from "./my_user_table";
 import S3ConfigStatusRow from "./s_3_config_status_table";
 
@@ -110,6 +124,20 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MySecretsRow),
+  my_ssh_endpoints: __table({
+    name: 'my_ssh_endpoints',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MySshEndpointsRow),
+  my_ssh_keys: __table({
+    name: 'my_ssh_keys',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MySshKeysRow),
   my_user: __table({
     name: 'my_user',
     indexes: [
@@ -132,6 +160,8 @@ const reducersSchema = __reducers(
   __reducerSchema("delete_device", DeleteDeviceReducer),
   __reducerSchema("delete_file", DeleteFileReducer),
   __reducerSchema("delete_secret", DeleteSecretReducer),
+  __reducerSchema("delete_ssh_endpoint", DeleteSshEndpointReducer),
+  __reducerSchema("delete_ssh_key", DeleteSshKeyReducer),
   __reducerSchema("finalize_upload", FinalizeUploadReducer),
   __reducerSchema("register_device", RegisterDeviceReducer),
   __reducerSchema("register_file", RegisterFileReducer),
@@ -143,6 +173,14 @@ const reducersSchema = __reducers(
   __reducerSchema("set_secret_devices", SetSecretDevicesReducer),
   __reducerSchema("set_secret_permissions", SetSecretPermissionsReducer),
   __reducerSchema("set_secret_value", SetSecretValueReducer),
+  __reducerSchema("set_ssh_endpoint", SetSshEndpointReducer),
+  __reducerSchema("set_ssh_endpoint_devices", SetSshEndpointDevicesReducer),
+  __reducerSchema("set_ssh_endpoint_enabled", SetSshEndpointEnabledReducer),
+  __reducerSchema("set_ssh_endpoint_tags", SetSshEndpointTagsReducer),
+  __reducerSchema("set_ssh_key", SetSshKeyReducer),
+  __reducerSchema("set_ssh_key_devices", SetSshKeyDevicesReducer),
+  __reducerSchema("set_ssh_key_tags", SetSshKeyTagsReducer),
+  __reducerSchema("set_ssh_key_value", SetSshKeyValueReducer),
   __reducerSchema("sign_in", SignInReducer),
   __reducerSchema("sign_out", SignOutReducer),
   __reducerSchema("sign_up", SignUpReducer),
@@ -151,6 +189,7 @@ const reducersSchema = __reducers(
   __reducerSchema("update_email", UpdateEmailReducer),
   __reducerSchema("update_password", UpdatePasswordReducer),
   __reducerSchema("update_s_3_config", UpdateS3ConfigReducer),
+  __reducerSchema("update_ssh_endpoint", UpdateSshEndpointReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
@@ -163,6 +202,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("request_download_url", RequestDownloadUrlProcedure.params, RequestDownloadUrlProcedure.returnType),
   __procedureSchema("request_upload_url", RequestUploadUrlProcedure.params, RequestUploadUrlProcedure.returnType),
   __procedureSchema("reveal_secret", RevealSecretProcedure.params, RevealSecretProcedure.returnType),
+  __procedureSchema("reveal_ssh_key", RevealSshKeyProcedure.params, RevealSshKeyProcedure.returnType),
   __procedureSchema("search_files", SearchFilesProcedure.params, SearchFilesProcedure.returnType),
   __procedureSchema("update_s_3_config_with_credentials", UpdateS3ConfigWithCredentialsProcedure.params, UpdateS3ConfigWithCredentialsProcedure.returnType),
 );

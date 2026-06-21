@@ -7,6 +7,64 @@ export const STDB_MODULE = env.VITE_STDB_MODULE ?? "spacenix-9wfd4";
 
 const TOKEN_KEY = "spacenix.stdb.token";
 const CREDS_KEY = "spacenix.stdb.credentials";
+const CALLBACK_KEY = "spacenix.cli.callback";
+
+export interface PendingCallback {
+  /** Local URL the TUI is waiting on, e.g. `http://127.0.0.1:7711/oauth/callback`. */
+  url: string;
+}
+
+export function readPendingCallback(): PendingCallback | undefined {
+  try {
+    const raw = sessionStorage.getItem(CALLBACK_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<PendingCallback>;
+    if (typeof parsed.url === "string" && parsed.url.length > 0) {
+      return { url: parsed.url };
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function storePendingCallback(cb: PendingCallback | undefined) {
+  try {
+    if (cb && cb.url) {
+      sessionStorage.setItem(CALLBACK_KEY, JSON.stringify(cb));
+    } else {
+      sessionStorage.removeItem(CALLBACK_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearPendingCallback() {
+  storePendingCallback(undefined);
+}
+
+/**
+ * Build the redirect URL the browser should navigate to after a successful
+ * sign-in completes inside the TUI's `?callback=` flow. We attach the
+ * current connection token and identity hex as query parameters so the
+ * local server the TUI is running can pick them up.
+ */
+export function buildCallbackRedirectUrl(
+  callbackUrl: string,
+  token: string,
+  identity: string,
+): string {
+  const url = new URL(callbackUrl);
+  // The TUI's local server reads `?token=…&identity=…`. We do not use
+  // `URLSearchParams` here because we want to keep things simple and the
+  // inputs are well-formed.
+  url.searchParams.set("token", token);
+  if (identity) {
+    url.searchParams.set("identity", identity);
+  }
+  return url.toString();
+}
 
 export function loadStoredToken(): string | undefined {
   try {

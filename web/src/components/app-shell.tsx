@@ -8,6 +8,7 @@ import {
   LogOut,
   Moon,
   Sun,
+  Terminal,
   UserRound,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ import {
 const NAV = [
   { to: "/files", label: "Files", icon: FilesIcon },
   { to: "/secrets", label: "Secrets", icon: KeyRound },
+  { to: "/ssh", label: "SSH", icon: Terminal },
   { to: "/pats", label: "PATs", icon: KeyRound },
   { to: "/devices", label: "Devices", icon: Laptop },
   { to: "/account", label: "Account", icon: UserRound },

@@ -1,9 +1,9 @@
 import * as React from "react";
 import { useReducer, useTable } from "spacetimedb/react";
-import { Laptop, Pencil, Activity, Plus } from "lucide-react";
+import { Laptop, Pencil, Activity, Plus, Server, ShieldCheck, ShieldOff, Terminal } from "lucide-react";
 
 import { reducers, tables } from "@/module_bindings";
-import type { DeviceMetadata } from "@/module_bindings/types";
+import type { DeviceMetadata, SshEndpointMetadata } from "@/module_bindings/types";
 import { formatTimestamp } from "@/lib/utils";
 import { reportError, reportSuccess } from "@/lib/toast";
 import { PageHeader, EmptyState, ConfirmDelete, Spinner, ChipList } from "@/components/common";
@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -32,18 +35,31 @@ import {
 
 export function DevicesPage() {
   const [rows, ready] = useTable(tables.my_devices);
+  const [sshEndpointRows] = useTable(tables.my_ssh_endpoints);
   const registerDevice = useReducer(reducers.registerDevice);
   const renameDevice = useReducer(reducers.renameDevice);
   const setDeviceHostname = useReducer(reducers.setDeviceHostname);
   const touchDevice = useReducer(reducers.touchDevice);
   const deleteDevice = useReducer(reducers.deleteDevice);
+  const setSshEndpointDevices = useReducer(reducers.setSshEndpointDevices);
+  const setSshEndpointEnabled = useReducer(reducers.setSshEndpointEnabled);
 
   const [registerOpen, setRegisterOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DeviceMetadata | null>(null);
+  const [sshFor, setSshFor] = React.useState<DeviceMetadata | null>(null);
 
   const devices = React.useMemo(
     () => [...rows].sort((a, b) => Number(b.createdAt.microsSinceUnixEpoch - a.createdAt.microsSinceUnixEpoch)),
     [rows]
+  );
+
+  const endpointsForDevice = React.useCallback(
+    (deviceId: string) => {
+      return [...sshEndpointRows]
+        .filter((e) => e.deviceIds.length === 0 || e.deviceIds.includes(deviceId))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+    [sshEndpointRows]
   );
 
   return (
@@ -79,6 +95,18 @@ export function DevicesPage() {
         }}
       />
 
+      <DeviceSshDialog
+        device={sshFor}
+        endpointsForDevice={endpointsForDevice}
+        onOpenChange={(o) => !o && setSshFor(null)}
+        onSetDevices={async (endpointId, deviceIds) => {
+          await setSshEndpointDevices({ id: endpointId, deviceIds });
+        }}
+        onSetEnabled={async (endpointId, enabled) => {
+          await setSshEndpointEnabled({ id: endpointId, enabled });
+        }}
+      />
+
       {!ready ? (
         <div className="flex justify-center p-10 text-muted-foreground">
           <Spinner className="size-5" />
@@ -101,65 +129,90 @@ export function DevicesPage() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Hostname</TableHead>
+                <TableHead>SSH</TableHead>
                 <TableHead>Last seen</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="w-32 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {devices.map((d) => (
-                <TableRow key={String(d.id)}>
-                  <TableCell className="font-medium">{d.name}</TableCell>
-                  <TableCell>
-                    {d.hostname ? (
-                      <span className="font-mono text-xs">{d.hostname}</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {d.lastSeenAt ? (
-                      <Badge variant="success" className="gap-1">
-                        <Activity className="size-3" />
-                        {formatTimestamp(d.lastSeenAt)}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground">never</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{formatTimestamp(d.createdAt)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
+              {devices.map((d) => {
+                const id = String(d.id);
+                const eps = endpointsForDevice(id);
+                const enabledCount = eps.filter((e) => e.enabled).length;
+                return (
+                  <TableRow key={id}>
+                    <TableCell className="font-medium">{d.name}</TableCell>
+                    <TableCell>
+                      {d.hostname ? (
+                        <span className="font-mono text-xs">{d.hostname}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <Button
                         variant="ghost"
-                        size="icon"
-                        aria-label="Mark seen"
-                        onClick={async () => {
-                          try {
-                            await touchDevice({ deviceId: d.id });
-                            reportSuccess(`Marked "${d.name}" as seen.`);
-                          } catch (err) {
-                            reportError(err);
-                          }
-                        }}
+                        size="sm"
+                        className="h-7 gap-1.5"
+                        onClick={() => setSshFor(d)}
+                        title="Toggle SSH endpoints for this device"
                       >
-                        <Activity className="size-4" />
+                        <Server className="size-3.5" />
+                        {eps.length === 0 ? (
+                          <span className="text-muted-foreground">none</span>
+                        ) : (
+                          <>
+                            <span className="font-mono">{enabledCount}</span>
+                            <span className="text-muted-foreground">/ {eps.length}</span>
+                          </>
+                        )}
                       </Button>
-                      <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => setEditing(d)}>
-                        <Pencil className="size-4" />
-                      </Button>
-                      <ConfirmDelete
-                        title={`Delete device "${d.name}"?`}
-                        description="Secrets assigned to this device will keep its id in their device list until you reassign them."
-                        onConfirm={async () => {
-                          await deleteDevice({ deviceId: d.id });
-                          reportSuccess("Device deleted.");
-                        }}
-                      />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    <TableCell>
+                      {d.lastSeenAt ? (
+                        <Badge variant="success" className="gap-1">
+                          <Activity className="size-3" />
+                          {formatTimestamp(d.lastSeenAt)}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">never</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatTimestamp(d.createdAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Mark seen"
+                          onClick={async () => {
+                            try {
+                              await touchDevice({ deviceId: d.id });
+                              reportSuccess(`Marked "${d.name}" as seen.`);
+                            } catch (err) {
+                              reportError(err);
+                            }
+                          }}
+                        >
+                          <Activity className="size-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => setEditing(d)}>
+                          <Pencil className="size-4" />
+                        </Button>
+                        <ConfirmDelete
+                          title={`Delete device "${d.name}"?`}
+                          description="Secrets assigned to this device will keep its id in their device list until you reassign them."
+                          onConfirm={async () => {
+                            await deleteDevice({ deviceId: d.id });
+                            reportSuccess("Device deleted.");
+                          }}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -320,6 +373,121 @@ function EditDeviceDialog({
           <Button onClick={submit} disabled={busy}>
             {busy ? <Spinner /> : null}
             Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeviceSshDialog({
+  device,
+  endpointsForDevice,
+  onOpenChange,
+  onSetDevices,
+  onSetEnabled,
+}: {
+  device: DeviceMetadata | null;
+  endpointsForDevice: (deviceId: string) => SshEndpointMetadata[];
+  onOpenChange: (open: boolean) => void;
+  onSetDevices: (endpointId: bigint, deviceIds: string[]) => Promise<void>;
+  onSetEnabled: (endpointId: bigint, enabled: boolean) => Promise<void>;
+}) {
+  const deviceId = device ? String(device.id) : "";
+  const applicable = React.useMemo(
+    () => (device ? endpointsForDevice(deviceId) : []),
+    [device, deviceId, endpointsForDevice]
+  );
+
+  const toggleAssignment = async (ep: SshEndpointMetadata) => {
+    if (!device) return;
+    const isExplicit = ep.deviceIds.includes(deviceId);
+    let nextIds: string[];
+    if (ep.deviceIds.length === 0) {
+      nextIds = [deviceId];
+    } else if (isExplicit) {
+      nextIds = ep.deviceIds.filter((id) => id !== deviceId);
+    } else {
+      nextIds = [...ep.deviceIds, deviceId];
+    }
+    try {
+      await onSetDevices(ep.id, nextIds);
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
+  const toggleEnabled = async (ep: SshEndpointMetadata, enabled: boolean) => {
+    try {
+      await onSetEnabled(ep.id, enabled);
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
+  return (
+    <Dialog open={device !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>SSH for {device?.name ?? ""}</DialogTitle>
+          <DialogDescription>
+            Toggle the SSH endpoints that should sync to this device, and turn each one on or off.
+          </DialogDescription>
+        </DialogHeader>
+
+        {applicable.length === 0 ? (
+          <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            No SSH endpoints defined. <a className="underline" href="#/ssh">Create one</a> to scope it to this device.
+          </div>
+        ) : (
+          <div className="max-h-80 space-y-1 overflow-y-auto rounded-md border p-2">
+            {applicable.map((ep) => {
+              const isAllDevices = ep.deviceIds.length === 0;
+              const isAssigned = isAllDevices || ep.deviceIds.includes(deviceId);
+              return (
+                <div
+                  key={String(ep.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                    isAssigned ? "bg-accent/40" : "hover:bg-accent/40"
+                  )}
+                >
+                  <Checkbox
+                    checked={isAssigned}
+                    onCheckedChange={() => toggleAssignment(ep)}
+                    aria-label={`Assign ${ep.name} to ${device?.name ?? ""}`}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <Terminal className="size-3.5 text-muted-foreground" />
+                      {ep.name}
+                      {isAllDevices ? (
+                        <span className="text-[10px] text-muted-foreground">(all devices)</span>
+                      ) : null}
+                    </div>
+                    <div className="font-mono text-[11px] text-muted-foreground">
+                      {ep.username}@{ep.host}:{ep.port}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={ep.enabled}
+                    onCheckedChange={(v) => toggleEnabled(ep, Boolean(v))}
+                    aria-label={`Toggle ${ep.name}`}
+                  />
+                  {ep.enabled ? (
+                    <ShieldCheck className="size-3.5 text-emerald-500" />
+                  ) : (
+                    <ShieldOff className="size-3.5 text-muted-foreground" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>

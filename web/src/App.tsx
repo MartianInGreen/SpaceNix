@@ -2,15 +2,25 @@ import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SpacetimeDBProvider } from "spacetimedb/react";
 import { Toaster } from "sonner";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 import { DbConnection } from "@/module_bindings";
-import { STDB_MODULE, STDB_URI, loadStoredToken, storeToken } from "@/lib/stdb";
+import {
+  STDB_MODULE,
+  STDB_URI,
+  buildCallbackRedirectUrl,
+  clearPendingCallback,
+  loadStoredToken,
+  readPendingCallback,
+  storePendingCallback,
+  storeToken,
+} from "@/lib/stdb";
 import { AuthProvider, SessionKeyProvider, useAuth, useSessionKey } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
 import { LoginPage } from "@/pages/login";
 import { FilesPage } from "@/pages/files";
 import { SecretsPage } from "@/pages/secrets";
+import { SshPage } from "@/pages/ssh";
 import { PatsPage } from "@/pages/pats";
 import { DevicesPage } from "@/pages/devices";
 import { AccountPage } from "@/pages/account";
@@ -102,6 +112,7 @@ function Router() {
         <Route index element={<Navigate to="/files" replace />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="secrets" element={<SecretsPage />} />
+        <Route path="ssh" element={<SshPage />} />
         <Route path="pats" element={<PatsPage />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="account" element={<AccountPage />} />
