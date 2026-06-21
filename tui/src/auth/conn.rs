@@ -112,18 +112,20 @@ pub fn connect(config: &Config, token: Option<String>) -> Result<ConnState> {
     let conn_for_thread = Arc::clone(&conn);
     let _handle = std::thread::Builder::new()
         .name("spacenix-stdb".to_owned())
-        .spawn(move || loop {
-            // The two outcomes we treat as terminal:
-            //   1. The connection has been disconnected (we asked for it).
-            //   2. `frame_tick` reports `is_active() == false`, which means
-            //      the SDK has given up.
-            if !conn_for_thread.is_active() {
-                return;
-            }
-            if let Err(err) = conn_for_thread.frame_tick() {
-                tracing::warn!(?err, "spacenix-stdb tick error");
-                // Brief pause so we don't spin if the error is sticky.
-                std::thread::sleep(std::time::Duration::from_millis(200));
+        .spawn(move || {
+            loop {
+                // The two outcomes we treat as terminal:
+                //   1. The connection has been disconnected (we asked for it).
+                //   2. `frame_tick` reports `is_active() == false`, which means
+                //      the SDK has given up.
+                if !conn_for_thread.is_active() {
+                    return;
+                }
+                if let Err(err) = conn_for_thread.frame_tick() {
+                    tracing::warn!(?err, "spacenix-stdb tick error");
+                    // Brief pause so we don't spin if the error is sticky.
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
             }
         })
         .context("spawning STDB message thread")?;

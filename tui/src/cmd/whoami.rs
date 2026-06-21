@@ -15,7 +15,10 @@ pub async fn run(config: Arc<Config>) -> Result<ExitCode> {
     };
     let short_id = short(&creds.identity, 8);
     println!("identity  {short_id}");
-    println!("saved at  {}", creds.saved_at.format("%Y-%m-%d %H:%M:%S UTC"));
+    println!(
+        "saved at  {}",
+        creds.saved_at.format("%Y-%m-%d %H:%M:%S UTC")
+    );
     if let Some(email) = creds.email.as_deref() {
         println!("email     {email}");
     }

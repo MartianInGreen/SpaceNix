@@ -31,6 +31,14 @@ pub enum TokenCommand {
 
     /// Revoke a token by id.
     Revoke { id: u64 },
+
+    /// Replace permissions for an active token.
+    Permissions {
+        id: u64,
+        /// Comma-separated permission grants.
+        #[arg(long, value_delimiter = ',')]
+        permission: Vec<String>,
+    },
 }
 
 pub async fn run(config: Arc<Config>, cmd: TokenCommand) -> Result<ExitCode> {
@@ -52,6 +60,9 @@ pub async fn run(config: Arc<Config>, cmd: TokenCommand) -> Result<ExitCode> {
             cmd_create(&config, &state, name, permission).await
         }
         TokenCommand::Revoke { id } => cmd_revoke(&state, id).await,
+        TokenCommand::Permissions { id, permission } => {
+            cmd_permissions(&state, id, permission).await
+        }
     }
 }
 
@@ -62,7 +73,11 @@ async fn cmd_list(state: &conn::ConnState) -> Result<ExitCode> {
         println!("(no tokens)");
     } else {
         for r in rows {
-            let status = if r.revoked_at.is_some() { "revoked" } else { "active" };
+            let status = if r.revoked_at.is_some() {
+                "revoked"
+            } else {
+                "active"
+            };
             println!("{}\t{}\t{}\t{:?}", r.id, status, r.name, r.permissions);
         }
     }
@@ -76,15 +91,18 @@ async fn cmd_create(
     permissions: Vec<String>,
 ) -> Result<ExitCode> {
     if permissions.is_empty() {
-        anyhow::bail!("at least one permission is required (e.g. --permission 'files:read,secrets:read')");
+        anyhow::bail!(
+            "at least one permission is required (e.g. --permission 'files:read,secrets:read')"
+        );
     }
     let (tx, rx) = oneshot::channel();
-    state
-        .conn
-        .procedures()
-        .create_api_key_then(name.clone(), permissions.clone(), move |_ctx, res| {
+    state.conn.procedures().create_api_key_then(
+        name.clone(),
+        permissions.clone(),
+        move |_ctx, res| {
             let _ = tx.send(res);
-        });
+        },
+    );
     let res = rx.await.context("create_api_key callback dropped")?;
     let created = match res {
         Ok(Ok(c)) => c,
@@ -121,5 +139,34 @@ async fn cmd_revoke(state: &conn::ConnState, id: u64) -> Result<ExitCode> {
         }
         Ok(Err(err)) => anyhow::bail!("revoke_api_key rejected: {err}"),
         Err(err) => anyhow::bail!("revoke_api_key failed: {err}"),
+    }
+}
+
+async fn cmd_permissions(
+    state: &conn::ConnState,
+    id: u64,
+    permissions: Vec<String>,
+) -> Result<ExitCode> {
+    if permissions.is_empty() {
+        anyhow::bail!("at least one permission is required");
+    }
+    let (tx, rx) = oneshot::channel();
+    state
+        .conn
+        .reducers()
+        .update_api_key_permissions_then(id, permissions, move |_ctx, res| {
+            let _ = tx.send(res);
+        })
+        .context("invoking update_api_key_permissions")?;
+    let res = rx
+        .await
+        .context("update_api_key_permissions callback dropped")?;
+    match res {
+        Ok(Ok(())) => {
+            println!("✓ token #{id} permissions updated");
+            Ok(ExitCode::from(0))
+        }
+        Ok(Err(err)) => anyhow::bail!("update_api_key_permissions rejected: {err}"),
+        Err(err) => anyhow::bail!("update_api_key_permissions failed: {err}"),
     }
 }

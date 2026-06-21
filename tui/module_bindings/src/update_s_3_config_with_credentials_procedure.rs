@@ -65,9 +65,11 @@ pub trait update_s_3_config_with_credentials {
         path_prefix: Option<String>,
         public_base_url: Option<String>,
 
-        __callback: impl FnOnce(&super::ProcedureEventContext, Result<Result<(), String>, __sdk::InternalError>)
-            + Send
-            + 'static,
+        __callback: impl FnOnce(
+            &super::ProcedureEventContext,
+            Result<Result<(), String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     );
 }
 
@@ -84,9 +86,11 @@ impl update_s_3_config_with_credentials for super::RemoteProcedures {
         path_prefix: Option<String>,
         public_base_url: Option<String>,
 
-        __callback: impl FnOnce(&super::ProcedureEventContext, Result<Result<(), String>, __sdk::InternalError>)
-            + Send
-            + 'static,
+        __callback: impl FnOnce(
+            &super::ProcedureEventContext,
+            Result<Result<(), String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<(), String>>(

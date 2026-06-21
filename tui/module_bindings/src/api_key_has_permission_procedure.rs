@@ -30,10 +30,10 @@ pub trait api_key_has_permission {
         permission: String,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<bool, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<bool, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     );
 }
 
@@ -44,10 +44,10 @@ impl api_key_has_permission for super::RemoteProcedures {
         permission: String,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<bool, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<bool, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<bool, String>>(

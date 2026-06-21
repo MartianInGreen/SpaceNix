@@ -66,6 +66,22 @@ enum Command {
     #[command(subcommand)]
     Secret(cli::secret::SecretCommand),
 
+    /// Manage files and folders metadata.
+    #[command(subcommand)]
+    File(cli::file::FileCommand),
+
+    /// Manage SSH keys and endpoints.
+    #[command(subcommand)]
+    Ssh(cli::ssh::SshCommand),
+
+    /// Manage registered devices.
+    #[command(subcommand)]
+    Device(cli::device::DeviceCommand),
+
+    /// Show and update account settings.
+    #[command(subcommand)]
+    Account(cli::account::AccountCommand),
+
     /// Manage personal access tokens.
     #[command(subcommand)]
     Token(cli::token::TokenCommand),
@@ -117,6 +133,10 @@ fn run() -> Result<ExitCode> {
             Command::Logout => cmd::logout::run(config).await,
             Command::Whoami => cmd::whoami::run(config).await,
             Command::Secret(cmd) => cli::secret::run(config, cmd).await,
+            Command::File(cmd) => cli::file::run(config, cmd).await,
+            Command::Ssh(cmd) => cli::ssh::run(config, cmd).await,
+            Command::Device(cmd) => cli::device::run(config, cmd).await,
+            Command::Account(cmd) => cli::account::run(config, cmd).await,
             Command::Token(cmd) => cli::token::run(config, cmd).await,
             Command::Sync(cmd) => cli::sync::run(config, cmd).await,
             Command::Service(cmd) => service::run(config, cmd).await,
@@ -134,8 +154,7 @@ fn run() -> Result<ExitCode> {
 
 fn init_tracing(filter: Option<&str>) {
     let default = filter.unwrap_or("info,spacetimedb_sdk=warn,spacenix=info");
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(env_filter)
         .with_target(false)

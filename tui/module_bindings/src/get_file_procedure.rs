@@ -30,10 +30,10 @@ pub trait get_file {
         file_id: u64,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<Option<FileMetadata>, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<Option<FileMetadata>, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     );
 }
 
@@ -43,10 +43,10 @@ impl get_file for super::RemoteProcedures {
         file_id: u64,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<Option<FileMetadata>, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<Option<FileMetadata>, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<Option<FileMetadata>, String>>(

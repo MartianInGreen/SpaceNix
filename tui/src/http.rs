@@ -31,7 +31,10 @@ pub fn router(conn: SharedConn) -> Router {
         .route("/health", get(health))
         .route("/whoami", get(whoami))
         .route("/secrets", get(list_secrets).post(create_secret))
-        .route("/secrets/:env", get(reveal_secret_route).delete(delete_secret_route))
+        .route(
+            "/secrets/:env",
+            get(reveal_secret_route).delete(delete_secret_route),
+        )
         .route("/files", get(list_files))
         .route("/sync", get(sync_status).post(sync_toggle))
         .with_state(AppState { conn })
@@ -62,9 +65,16 @@ struct WhoamiResponse {
 }
 
 async fn whoami(State(state): State<AppState>) -> Json<WhoamiResponse> {
-    let identity = state.conn.as_ref().and_then(|c| c.identity()).map(|i| i.to_hex().to_string());
+    let identity = state
+        .conn
+        .as_ref()
+        .and_then(|c| c.identity())
+        .map(|i| i.to_hex().to_string());
     let signed_in = identity.is_some();
-    Json(WhoamiResponse { identity, signed_in })
+    Json(WhoamiResponse {
+        identity,
+        signed_in,
+    })
 }
 
 #[derive(Serialize)]
@@ -123,7 +133,9 @@ async fn reveal_secret_route(
         .reveal_secret_then(id, move |_ctx, res| {
             let _ = tx.send(res);
         });
-    let res = rx.await.map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let res = rx
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     let value = res
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|err| {
@@ -167,7 +179,9 @@ async fn create_secret(
             },
         )
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    let res = rx.await.map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let res = rx
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     res.map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|err| {
             tracing::error!(?err, "set_secret rejected");
@@ -210,7 +224,9 @@ async fn delete_secret_route(
             let _ = tx.send(res);
         })
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    let res = rx.await.map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let res = rx
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     res.map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|err| {
             tracing::error!(?err, "delete_secret rejected");
@@ -231,7 +247,9 @@ struct FileDto {
     updated_at_micros: i64,
 }
 
-async fn list_files(State(state): State<AppState>) -> Result<Json<Vec<FileDto>>, axum::http::StatusCode> {
+async fn list_files(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<FileDto>>, axum::http::StatusCode> {
     let Some(conn) = state.conn.as_ref() else {
         return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
     };

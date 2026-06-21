@@ -53,8 +53,7 @@ impl SyncSelection {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating sync dir {}", parent.display()))?;
         }
-        std::fs::write(path, raw)
-            .with_context(|| format!("writing {}", path.display()))?;
+        std::fs::write(path, raw).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
 

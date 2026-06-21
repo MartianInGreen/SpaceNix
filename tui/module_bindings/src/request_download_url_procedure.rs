@@ -28,10 +28,10 @@ pub trait request_download_url {
         file_id: u64,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<String, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<String, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     );
 }
 
@@ -41,10 +41,10 @@ impl request_download_url for super::RemoteProcedures {
         file_id: u64,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<String, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<String, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<String, String>>(

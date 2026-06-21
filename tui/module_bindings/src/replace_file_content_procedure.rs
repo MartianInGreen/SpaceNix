@@ -32,10 +32,10 @@ pub trait replace_file_content {
         content_type: Option<String>,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<ReplaceTicket, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<ReplaceTicket, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     );
 }
 
@@ -46,10 +46,10 @@ impl replace_file_content for super::RemoteProcedures {
         content_type: Option<String>,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<ReplaceTicket, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<ReplaceTicket, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<ReplaceTicket, String>>(

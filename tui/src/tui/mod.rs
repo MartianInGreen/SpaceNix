@@ -2,4 +2,4 @@
 
 mod app;
 
-pub use app::{run, TuiArgs};
+pub use app::{TuiArgs, run};

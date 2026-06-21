@@ -36,9 +36,8 @@ impl Credentials {
     pub fn save(&self, path: &Path) -> Result<()> {
         let raw = toml::to_string_pretty(self).context("serializing credentials")?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!("creating credentials parent dir {}", parent.display())
-            })?;
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating credentials parent dir {}", parent.display()))?;
         }
         write_atomic(path, raw.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
@@ -56,9 +55,7 @@ fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let tmp = dir.join(format!(
         ".{}.tmp",
-        path.file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("creds")
+        path.file_name().and_then(|s| s.to_str()).unwrap_or("creds")
     ));
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)?;

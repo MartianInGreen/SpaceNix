@@ -42,10 +42,10 @@ pub trait request_upload_url {
         content_type: Option<String>,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<UploadTicket, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<UploadTicket, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     );
 }
 
@@ -58,10 +58,10 @@ impl request_upload_url for super::RemoteProcedures {
         content_type: Option<String>,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<UploadTicket, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<UploadTicket, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<UploadTicket, String>>(

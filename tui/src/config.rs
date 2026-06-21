@@ -15,7 +15,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_STDB_URI: &str = "https://maincloud.spacetimedb.com";
-pub const DEFAULT_STDB_MODULE: &str = "c200d8e8d89037d457594229d7e351160475577171a6273c6d29f204fb98ee8a";
+pub const DEFAULT_STDB_MODULE: &str =
+    "c200d8e8d89037d457594229d7e351160475577171a6273c6d29f204fb98ee8a";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -64,6 +65,10 @@ impl Config {
 
     pub fn sync_file(&self) -> PathBuf {
         self.config_dir.join("sync.toml")
+    }
+
+    pub fn device_file(&self) -> PathBuf {
+        self.config_dir.join("device.toml")
     }
 
     pub fn service_lock_file(&self) -> PathBuf {

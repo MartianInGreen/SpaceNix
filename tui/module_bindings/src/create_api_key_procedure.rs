@@ -32,10 +32,10 @@ pub trait create_api_key {
         permissions: Vec<String>,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<CreatedApiKey, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<CreatedApiKey, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     );
 }
 
@@ -46,10 +46,10 @@ impl create_api_key for super::RemoteProcedures {
         permissions: Vec<String>,
 
         __callback: impl FnOnce(
-                &super::ProcedureEventContext,
-                Result<Result<CreatedApiKey, String>, __sdk::InternalError>,
-            ) + Send
-            + 'static,
+            &super::ProcedureEventContext,
+            Result<Result<CreatedApiKey, String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<CreatedApiKey, String>>(

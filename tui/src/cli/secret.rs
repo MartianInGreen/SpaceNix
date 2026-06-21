@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 use tokio::sync::oneshot;
 
@@ -113,9 +113,12 @@ async fn cmd_get(state: &conn::ConnState, env: &str, export: bool) -> Result<Exi
         .context(format!("no secret named {env}"))?;
 
     let (tx, rx) = oneshot::channel();
-    state.conn.procedures().reveal_secret_then(id, move |_ctx, res| {
-        let _ = tx.send(res);
-    });
+    state
+        .conn
+        .procedures()
+        .reveal_secret_then(id, move |_ctx, res| {
+            let _ = tx.send(res);
+        });
     let res = rx.await.context("reveal_secret callback dropped")?;
 
     let value = match res {
@@ -156,9 +159,15 @@ async fn cmd_set(
     state
         .conn
         .reducers()
-        .set_secret_then(env.clone(), value, devices, permissions, move |_ctx, res| {
-            let _ = tx.send(res);
-        })
+        .set_secret_then(
+            env.clone(),
+            value,
+            devices,
+            permissions,
+            move |_ctx, res| {
+                let _ = tx.send(res);
+            },
+        )
         .context("invoking set_secret")?;
     let res = rx.await.context("set_secret callback dropped")?;
     match res {

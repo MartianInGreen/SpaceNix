@@ -17,11 +17,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use axum::Json;
+use axum::Router;
 use axum::extract::Query;
 use axum::response::Html;
 use axum::routing::get;
-use axum::Json;
-use axum::Router;
 use serde::Deserialize;
 use tokio::sync::oneshot;
 
@@ -181,9 +181,7 @@ pub fn complete_login(
 ) -> Result<LoginOutcome> {
     match conn::connect(&config, Some(token.clone())) {
         Ok(conn) => {
-            let Some(identity_hex) =
-                identity.or_else(|| wait_for_identity(&conn).ok())
-            else {
+            let Some(identity_hex) = identity.or_else(|| wait_for_identity(&conn).ok()) else {
                 anyhow::bail!(
                     "connected to SpacetimeDB but the server did not report an \
                      identity. Try again once the module is published."
@@ -232,6 +230,19 @@ pub fn complete_login(
     }
 }
 
+pub fn build_web_login_url(config: &Config, callback: &str) -> String {
+    let origin = std::env::var("SPACENIX_WEB_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let module = &config.stdb_module;
+    let uri = &config.stdb_uri;
+    format!(
+        "{origin}/login?callback={}&module={}&uri={}",
+        urlencoding(callback),
+        urlencoding(module),
+        urlencoding(uri)
+    )
+}
+
 fn wait_for_identity(conn: &ConnState) -> Result<String> {
     // Block on the watch channel for up to a few seconds.
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -262,4 +273,29 @@ fn html_escape(s: &str) -> String {
         }
     }
     out
+}
+
+fn urlencoding(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => {
+                out.push('%');
+                out.push(hex_digit(b >> 4));
+                out.push(hex_digit(b & 0x0f));
+            }
+        }
+    }
+    out
+}
+
+fn hex_digit(n: u8) -> char {
+    match n {
+        0..=9 => (b'0' + n) as char,
+        10..=15 => (b'A' + n - 10) as char,
+        _ => unreachable!(),
+    }
 }

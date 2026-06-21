@@ -47,8 +47,11 @@ pub async fn run(config: Arc<Config>, args: LoginArgs) -> Result<ExitCode> {
             None
         }
     }) {
-        let outcome =
-            login::complete_login(config, token, None).context("logging in with token")?;
+        let outcome = login::complete_login(Arc::clone(&config), token, None)
+            .context("logging in with token")?;
+        crate::auth::device::ensure_local_device(Arc::clone(&config), &outcome.conn)
+            .await
+            .context("selecting local device")?;
         println!("✓ logged in as {}", outcome.credentials.identity);
         return Ok(ExitCode::from(0));
     }
@@ -56,7 +59,7 @@ pub async fn run(config: Arc<Config>, args: LoginArgs) -> Result<ExitCode> {
     let pending = login::start_callback_server()
         .await
         .context("starting local callback server")?;
-    let web_url = build_web_login_url(&config, &pending.url);
+    let web_url = login::build_web_login_url(&config, &pending.url);
     println!("Opening browser to: {web_url}");
     if let Err(err) = open::that_detached(&web_url) {
         eprintln!("could not open browser: {err}");
@@ -69,50 +72,11 @@ pub async fn run(config: Arc<Config>, args: LoginArgs) -> Result<ExitCode> {
         .await
         .context("waiting for browser callback")?;
 
-    let outcome = login::complete_login(config, payload.token, payload.identity)
+    let outcome = login::complete_login(Arc::clone(&config), payload.token, payload.identity)
         .context("completing login")?;
+    crate::auth::device::ensure_local_device(Arc::clone(&config), &outcome.conn)
+        .await
+        .context("selecting local device")?;
     println!("✓ logged in as {}", outcome.credentials.identity);
     Ok(ExitCode::from(0))
-}
-
-fn build_web_login_url(config: &Config, callback: &str) -> String {
-    // The web app needs to know to redirect back to the local server after
-    // sign-in. The exact param name will be agreed with the web frontend.
-    let origin = std::env::var("SPACENIX_WEB_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:5173".to_string());
-    let module = &config.stdb_module;
-    let uri = &config.stdb_uri;
-    format!(
-        "{origin}/login?callback={}&module={}&uri={}",
-        urlencoding(callback),
-        urlencoding(module),
-        urlencoding(uri)
-    )
-}
-
-fn urlencoding(s: &str) -> String {
-    // tiny RFC 3986 percent encoder; we avoid pulling in the `url` crate
-    // just for this.
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char);
-            }
-            _ => {
-                out.push('%');
-                out.push(hex_digit(b >> 4));
-                out.push(hex_digit(b & 0x0f));
-            }
-        }
-    }
-    out
-}
-
-fn hex_digit(n: u8) -> char {
-    match n {
-        0..=9 => (b'0' + n) as char,
-        10..=15 => (b'A' + n - 10) as char,
-        _ => unreachable!(),
-    }
 }
