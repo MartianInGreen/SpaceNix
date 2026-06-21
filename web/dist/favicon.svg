@@ -1,18 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="SpaceNix favicon">
-  <defs>
-    <radialGradient id="fav-sphere" cx="0.35" cy="0.32" r="0.8">
-      <stop offset="0" stop-color="#a5f3fc"/>
-      <stop offset="0.6" stop-color="#22d3ee"/>
-      <stop offset="1" stop-color="#0e4f60"/>
-    </radialGradient>
-    <linearGradient id="fav-ring" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#67e8f9" stop-opacity="0.15"/>
-      <stop offset="0.5" stop-color="#ecfeff" stop-opacity="0.95"/>
-      <stop offset="1" stop-color="#67e8f9" stop-opacity="0.15"/>
-    </linearGradient>
-  </defs>
-  <circle cx="24" cy="24" r="13" fill="url(#fav-sphere)"/>
-  <g transform="rotate(-22 24 24)">
-    <ellipse cx="24" cy="24" rx="21" ry="6.5" fill="none" stroke="url(#fav-ring)" stroke-width="2.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <polygon points="128,28 208,82 188,204 68,204 48,82" fill="#081F3F"/>
+
+  <path
+    d="M128 48
+       L160 126
+       L140 118
+       L128 210
+       L116 118
+       L96 126 Z"
+    fill="#FFFFFF"
+  />
+
+  <path
+    d="M128 48
+       L160 126
+       L140 118
+       L128 148
+       L116 118
+       L96 126 Z"
+    fill="#37D7FF"
+  />
+
+  <g stroke="#37D7FF" stroke-width="8" stroke-linecap="round">
+    <path d="M80 88 L108 104"/>
+    <path d="M176 88 L148 104"/>
+    <path d="M70 154 L104 144"/>
+    <path d="M186 154 L152 144"/>
   </g>
+
+  <circle cx="128" cy="108" r="9" fill="#081F3F"/>
+  <circle cx="128" cy="108" r="4" fill="#FFFFFF"/>
+
+  <path
+    d="M78 54 L83 67 L96 72 L83 77 L78 90 L73 77 L60 72 L73 67 Z"
+    fill="#FFFFFF"
+  />
 </svg>
