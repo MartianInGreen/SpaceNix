@@ -17,6 +17,7 @@ pub struct User {
     pub email: String,
     pub display_name: Option<String>,
     pub role: String,
+    pub email_verified: bool,
     pub created_at: Timestamp,
     pub last_login_at: Timestamp,
 }
@@ -42,6 +43,7 @@ pub struct UserProfile {
     pub email: String,
     pub display_name: Option<String>,
     pub role: String,
+    pub email_verified: bool,
     pub created_at: Timestamp,
     pub last_login_at: Timestamp,
 }
@@ -53,6 +55,7 @@ impl From<User> for UserProfile {
             email: u.email,
             display_name: u.display_name,
             role: u.role,
+            email_verified: u.email_verified,
             created_at: u.created_at,
             last_login_at: u.last_login_at,
         }
@@ -89,7 +92,8 @@ pub fn sign_up(
     }
 
     let identity = ctx.sender();
-    let role = if ctx.db.user().count() == 0 {
+    let is_first_user = ctx.db.user().count() == 0;
+    let role = if is_first_user {
         ROLE_ADMIN
     } else {
         ROLE_USER
@@ -100,6 +104,7 @@ pub fn sign_up(
         email,
         display_name,
         role: role.to_string(),
+        email_verified: is_first_user,
         created_at: ctx.timestamp,
         last_login_at: ctx.timestamp,
     });
@@ -165,6 +170,9 @@ pub fn update_email(
     current_password: String,
 ) -> Result<(), String> {
     let user = require_registered_user(ctx)?;
+    if !user.email_verified {
+        return Err("verify your current email before changing it".to_string());
+    }
     verify_current_password(ctx, &user.identity, &current_password)?;
 
     let email = normalize_email(&new_email)?;
@@ -177,6 +185,7 @@ pub fn update_email(
 
     ctx.db.user().identity().update(User {
         email: email.clone(),
+        email_verified: false,
         ..user
     });
     Ok(())
@@ -206,7 +215,7 @@ pub fn update_password(
     Ok(())
 }
 
-fn verify_current_password(
+pub fn verify_current_password(
     ctx: &ReducerContext,
     user_identity: &Identity,
     password: &str,
@@ -312,7 +321,7 @@ fn encode_b64_nopad(bytes: &[u8]) -> String {
     out
 }
 
-fn normalize_email(email: &str) -> Result<String, String> {
+pub fn normalize_email(email: &str) -> Result<String, String> {
     let email = email.trim().to_lowercase();
     if email.is_empty() {
         return Err("email cannot be empty".to_string());

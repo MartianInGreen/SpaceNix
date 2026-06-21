@@ -16,7 +16,9 @@ import * as RequestUploadUrlProcedure from "../request_upload_url_procedure";
 import * as RevealSecretProcedure from "../reveal_secret_procedure";
 import * as RevealSshKeyProcedure from "../reveal_ssh_key_procedure";
 import * as SearchFilesProcedure from "../search_files_procedure";
+import * as SendVerificationEmailProcedure from "../send_verification_email_procedure";
 import * as UpdateS3ConfigWithCredentialsProcedure from "../update_s_3_config_with_credentials_procedure";
+import * as UpdateScalewayEmailConfigWithCredentialsProcedure from "../update_scaleway_email_config_with_credentials_procedure";
 
 export type ApiKeyHasPermissionArgs = __Infer<typeof ApiKeyHasPermissionProcedure.params>;
 export type ApiKeyHasPermissionResult = __Infer<typeof ApiKeyHasPermissionProcedure.returnType>;
@@ -38,6 +40,10 @@ export type RevealSshKeyArgs = __Infer<typeof RevealSshKeyProcedure.params>;
 export type RevealSshKeyResult = __Infer<typeof RevealSshKeyProcedure.returnType>;
 export type SearchFilesArgs = __Infer<typeof SearchFilesProcedure.params>;
 export type SearchFilesResult = __Infer<typeof SearchFilesProcedure.returnType>;
+export type SendVerificationEmailArgs = __Infer<typeof SendVerificationEmailProcedure.params>;
+export type SendVerificationEmailResult = __Infer<typeof SendVerificationEmailProcedure.returnType>;
 export type UpdateS3ConfigWithCredentialsArgs = __Infer<typeof UpdateS3ConfigWithCredentialsProcedure.params>;
 export type UpdateS3ConfigWithCredentialsResult = __Infer<typeof UpdateS3ConfigWithCredentialsProcedure.returnType>;
+export type UpdateScalewayEmailConfigWithCredentialsArgs = __Infer<typeof UpdateScalewayEmailConfigWithCredentialsProcedure.params>;
+export type UpdateScalewayEmailConfigWithCredentialsResult = __Infer<typeof UpdateScalewayEmailConfigWithCredentialsProcedure.returnType>;
 

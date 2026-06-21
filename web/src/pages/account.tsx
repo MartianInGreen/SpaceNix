@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Mail, KeyRound, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Mail, KeyRound, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import { useProcedure, useReducer, useTable } from "spacetimedb/react";
 
 import { procedures, reducers, tables } from "@/module_bindings";
@@ -16,6 +16,7 @@ import { PageHeader, Spinner } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -31,6 +32,7 @@ export function AccountPage() {
   const {
     displayName,
     email,
+    emailVerified,
     identityHex,
     role,
     isAdmin,
@@ -41,9 +43,11 @@ export function AccountPage() {
   const requestDownload = useProcedure(procedures.requestDownloadUrl);
   const replaceContent = useProcedure(procedures.replaceFileContent);
   const verifyPasswordReducer = useReducer(reducers.signIn);
-  const updateEmailReducer = useReducer(reducers.updateEmail);
   const updatePasswordReducer = useReducer(reducers.updatePassword);
   const finalizeUpload = useReducer(reducers.finalizeUpload);
+  const requestEmailChange = useReducer(reducers.requestEmailChangeVerification);
+  const confirmEmailChange = useReducer(reducers.confirmEmailChange);
+  const sendVerificationEmail = useProcedure(procedures.sendVerificationEmail);
 
   const reencryptFile = React.useCallback(
     async (file: FileMetadata, fromKey: CryptoKey, toKey: CryptoKey) => {
@@ -88,6 +92,20 @@ export function AccountPage() {
         <CardContent className="space-y-2 text-sm">
           <Row label="Display name" value={displayName ?? <Empty />} />
           <Row label="Email" value={email ?? <Empty />} />
+          <Row
+            label="Email status"
+            value={
+              emailVerified ? (
+                <Badge variant="default" className="gap-1">
+                  <ShieldCheck className="size-3" /> Verified
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="gap-1">
+                  <ShieldAlert className="size-3" /> Unverified
+                </Badge>
+              )
+            }
+          />
           <Row label="Role" value={role ?? <Empty />} />
           {isAdmin ? (
             <p className="text-xs text-muted-foreground">
@@ -112,14 +130,19 @@ export function AccountPage() {
             <Mail className="size-4" /> Email
           </CardTitle>
           <CardDescription>
-            Change the email you use to sign in. Confirm with your current password.
+            Change the email you use to sign in. A verification code is sent to the
+            new address before the change takes effect.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <EmailForm
+          <ChangeEmailForm
             currentEmail={email}
-            onSubmit={async (newEmail, currentPassword) => {
-              await updateEmailReducer({ newEmail, currentPassword });
+            onRequestCode={async (newEmail, currentPassword) => {
+              await requestEmailChange({ newEmail, currentPassword });
+              await sendVerificationEmail();
+            }}
+            onConfirm={async (code) => {
+              await confirmEmailChange({ code });
             }}
           />
         </CardContent>
@@ -186,18 +209,23 @@ function Empty() {
   return <span className="text-muted-foreground">—</span>;
 }
 
-function EmailForm({
+function ChangeEmailForm({
   currentEmail,
-  onSubmit,
+  onRequestCode,
+  onConfirm,
 }: {
   currentEmail: string | null;
-  onSubmit: (newEmail: string, currentPassword: string) => Promise<void>;
+  onRequestCode: (newEmail: string, currentPassword: string) => Promise<void>;
+  onConfirm: (code: string) => Promise<void>;
 }) {
   const [newEmail, setNewEmail] = React.useState("");
   const [currentPassword, setCurrentPassword] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
+  const [code, setCode] = React.useState("");
+  const [sentEmail, setSentEmail] = React.useState<string | null>(null);
+  const [requesting, setRequesting] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const requestCode = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = newEmail.trim();
     if (!EMAIL_PATTERN.test(trimmed)) {
@@ -212,21 +240,85 @@ function EmailForm({
       reportError(new Error("Enter your current password to confirm."));
       return;
     }
-    setBusy(true);
+    setRequesting(true);
     try {
-      await onSubmit(trimmed, currentPassword);
-      reportSuccess("Email updated.");
-      setNewEmail("");
-      setCurrentPassword("");
+      await onRequestCode(trimmed, currentPassword);
+      setSentEmail(trimmed);
+      reportSuccess("Verification code sent to the new email address.");
     } catch (err) {
       reportError(err);
     } finally {
-      setBusy(false);
+      setRequesting(false);
     }
   };
 
+  const confirm = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = code.trim();
+    if (!/^\d{6}$/.test(trimmed)) {
+      reportError(new Error("Enter the 6-digit code from the new email address."));
+      return;
+    }
+    setConfirming(true);
+    try {
+      await onConfirm(trimmed);
+      reportSuccess("Email address updated.");
+      setNewEmail("");
+      setCurrentPassword("");
+      setCode("");
+      setSentEmail(null);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  if (sentEmail) {
+    return (
+      <form onSubmit={confirm} className="space-y-4" autoComplete="off">
+        <p className="text-sm text-muted-foreground">
+          A verification code was sent to <strong>{sentEmail}</strong>. Enter it
+          below to confirm the change.
+        </p>
+        <div className="space-y-2">
+          <Label htmlFor="change-email-code">Verification code</Label>
+          <Input
+            id="change-email-code"
+            name="changeEmailCode"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="000000"
+            value={code}
+            onChange={(e) => {
+              const value = e.target.value.replace(/\D/g, "").slice(0, 6);
+              setCode(value);
+            }}
+            disabled={confirming}
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={confirming}
+            onClick={() => setSentEmail(null)}
+          >
+            Back
+          </Button>
+          <Button type="submit" disabled={confirming}>
+            {confirming ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            Verify and change
+          </Button>
+        </div>
+      </form>
+    );
+  }
+
   return (
-    <form onSubmit={submit} className="space-y-4" autoComplete="off">
+    <form onSubmit={requestCode} className="space-y-4" autoComplete="off">
       <div className="space-y-2">
         <Label htmlFor="new-email">New email</Label>
         <Input
@@ -237,7 +329,7 @@ function EmailForm({
           required
           value={newEmail}
           onChange={(e) => setNewEmail(e.target.value)}
-          disabled={busy}
+          disabled={requesting}
           placeholder="you@example.com"
         />
       </div>
@@ -251,13 +343,13 @@ function EmailForm({
           required
           value={currentPassword}
           onChange={(e) => setCurrentPassword(e.target.value)}
-          disabled={busy}
+          disabled={requesting}
         />
       </div>
       <div className="flex justify-end">
-        <Button type="submit" disabled={busy}>
-          {busy ? <Spinner className="size-4" /> : null}
-          Update email
+        <Button type="submit" disabled={requesting}>
+          {requesting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+          Send verification code
         </Button>
       </div>
     </form>

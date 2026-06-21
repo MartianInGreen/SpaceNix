@@ -8,6 +8,7 @@ export interface AuthState {
   displayName: string | null;
   role: string | null;
   isAdmin: boolean;
+  emailVerified: boolean;
   /** True while a stored-credential auto sign-in is being replayed. */
   restoring: boolean;
   fileEncryptionKey: CryptoKey | null;

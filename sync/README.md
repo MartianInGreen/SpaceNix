@@ -27,7 +27,9 @@ sync/
 │       ├── ssh.rs         SSH keypairs and SSH endpoints.
 │       ├── file.rs        UserFile rows + S3 presigned-URL procedures.
 │       ├── api_key.rs     Personal access tokens (`snx_…`).
-│       └── config.rs      Singleton S3 config row + admin reducers.
+│       ├── config.rs      Singleton S3 config row + admin reducers.
+│       └── email.rs       Scaleway Transactional Email config + email
+│                          verification reducers/procedures.
 └── src/
     └── module_bindings/   Generated TypeScript bindings (regenerated via
                            `pnpm --dir web gen:bindings`).
@@ -61,6 +63,13 @@ sync/
   Updated by an admin-only `update_s3_config` reducer (or its
   `update_s_3_config_with_credentials` companion used by
   `scripts/upload-s3-env.sh`).
+- **Email verification** (`email.rs`) — `User` rows track `email_verified`.
+  New users (except the very first admin) must verify their email via a 6-digit
+  code sent through Scaleway Transactional Email. The Scaleway API region,
+  secret key, project id, and sender address live in a singleton config row
+  (id `1`), updated by `update_scaleway_email_config` or the
+  `update_scaleway_email_config_with_credentials` companion used by
+  `scripts/upload-scaleway-email-env.sh`.
 
 ## Build
 
@@ -100,5 +109,6 @@ Both commands are local codegen — they do not touch a running server.
 
 - `spacetime.json` — checked-in defaults (`module-path`, `server`).
 - `spacetime.local.json` — gitignored local override. The
-  `scripts/upload-s3-env.sh` script reads `.database` / `.module` from this
-  file when deciding which database to push S3 credentials to.
+  `scripts/upload-s3-env.sh` and `scripts/upload-scaleway-email-env.sh`
+  scripts read `.database` / `.module` from this file when deciding which
+  database to push credentials to.

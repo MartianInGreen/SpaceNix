@@ -38,6 +38,7 @@ import AckUiCommandReducer from "./ack_ui_command_reducer";
 import AttachSshRelaySessionTokenReducer from "./attach_ssh_relay_session_token_reducer";
 import ClearSshRelayDeviceReducer from "./clear_ssh_relay_device_reducer";
 import CloseSshRelaySessionReducer from "./close_ssh_relay_session_reducer";
+import ConfirmEmailChangeReducer from "./confirm_email_change_reducer";
 import CreateFolderReducer from "./create_folder_reducer";
 import DeleteDeviceReducer from "./delete_device_reducer";
 import DeleteFileReducer from "./delete_file_reducer";
@@ -52,6 +53,8 @@ import RegisterFileReducer from "./register_file_reducer";
 import RenameDeviceReducer from "./rename_device_reducer";
 import RenameFileReducer from "./rename_file_reducer";
 import ReportDeviceMetricsReducer from "./report_device_metrics_reducer";
+import RequestEmailChangeVerificationReducer from "./request_email_change_verification_reducer";
+import RequestEmailVerificationReducer from "./request_email_verification_reducer";
 import RevokeApiKeyReducer from "./revoke_api_key_reducer";
 import SendUiEventReducer from "./send_ui_event_reducer";
 import SetDeviceHostnameReducer from "./set_device_hostname_reducer";
@@ -79,7 +82,9 @@ import UpdateApiKeyPermissionsReducer from "./update_api_key_permissions_reducer
 import UpdateEmailReducer from "./update_email_reducer";
 import UpdatePasswordReducer from "./update_password_reducer";
 import UpdateS3ConfigReducer from "./update_s_3_config_reducer";
+import UpdateScalewayEmailConfigReducer from "./update_scaleway_email_config_reducer";
 import UpdateSshEndpointReducer from "./update_ssh_endpoint_reducer";
+import VerifyEmailReducer from "./verify_email_reducer";
 
 // Import all procedure arg schemas
 import * as ApiKeyHasPermissionProcedure from "./api_key_has_permission_procedure";
@@ -92,7 +97,9 @@ import * as RequestUploadUrlProcedure from "./request_upload_url_procedure";
 import * as RevealSecretProcedure from "./reveal_secret_procedure";
 import * as RevealSshKeyProcedure from "./reveal_ssh_key_procedure";
 import * as SearchFilesProcedure from "./search_files_procedure";
+import * as SendVerificationEmailProcedure from "./send_verification_email_procedure";
 import * as UpdateS3ConfigWithCredentialsProcedure from "./update_s_3_config_with_credentials_procedure";
+import * as UpdateScalewayEmailConfigWithCredentialsProcedure from "./update_scaleway_email_config_with_credentials_procedure";
 
 // Import all table schema definitions
 import MyApiKeysRow from "./my_api_keys_table";
@@ -107,6 +114,7 @@ import MySshRelaySessionsRow from "./my_ssh_relay_sessions_table";
 import MyUiCommandsRow from "./my_ui_commands_table";
 import MyUserRow from "./my_user_table";
 import S3ConfigStatusRow from "./s_3_config_status_table";
+import ScalewayEmailConfigStatusRow from "./scaleway_email_config_status_table";
 import SshRelayDeviceRow from "./ssh_relay_device_table";
 import SshRelaySessionRow from "./ssh_relay_session_table";
 import UiCommandRow from "./ui_command_table";
@@ -253,6 +261,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, S3ConfigStatusRow),
+  scaleway_email_config_status: __table({
+    name: 'scaleway_email_config_status',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ScalewayEmailConfigStatusRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
@@ -261,6 +276,7 @@ const reducersSchema = __reducers(
   __reducerSchema("attach_ssh_relay_session_token", AttachSshRelaySessionTokenReducer),
   __reducerSchema("clear_ssh_relay_device", ClearSshRelayDeviceReducer),
   __reducerSchema("close_ssh_relay_session", CloseSshRelaySessionReducer),
+  __reducerSchema("confirm_email_change", ConfirmEmailChangeReducer),
   __reducerSchema("create_folder", CreateFolderReducer),
   __reducerSchema("delete_device", DeleteDeviceReducer),
   __reducerSchema("delete_file", DeleteFileReducer),
@@ -275,6 +291,8 @@ const reducersSchema = __reducers(
   __reducerSchema("rename_device", RenameDeviceReducer),
   __reducerSchema("rename_file", RenameFileReducer),
   __reducerSchema("report_device_metrics", ReportDeviceMetricsReducer),
+  __reducerSchema("request_email_change_verification", RequestEmailChangeVerificationReducer),
+  __reducerSchema("request_email_verification", RequestEmailVerificationReducer),
   __reducerSchema("revoke_api_key", RevokeApiKeyReducer),
   __reducerSchema("send_ui_event", SendUiEventReducer),
   __reducerSchema("set_device_hostname", SetDeviceHostnameReducer),
@@ -302,7 +320,9 @@ const reducersSchema = __reducers(
   __reducerSchema("update_email", UpdateEmailReducer),
   __reducerSchema("update_password", UpdatePasswordReducer),
   __reducerSchema("update_s_3_config", UpdateS3ConfigReducer),
+  __reducerSchema("update_scaleway_email_config", UpdateScalewayEmailConfigReducer),
   __reducerSchema("update_ssh_endpoint", UpdateSshEndpointReducer),
+  __reducerSchema("verify_email", VerifyEmailReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
@@ -317,7 +337,9 @@ const proceduresSchema = __procedures(
   __procedureSchema("reveal_secret", RevealSecretProcedure.params, RevealSecretProcedure.returnType),
   __procedureSchema("reveal_ssh_key", RevealSshKeyProcedure.params, RevealSshKeyProcedure.returnType),
   __procedureSchema("search_files", SearchFilesProcedure.params, SearchFilesProcedure.returnType),
+  __procedureSchema("send_verification_email", SendVerificationEmailProcedure.params, SendVerificationEmailProcedure.returnType),
   __procedureSchema("update_s_3_config_with_credentials", UpdateS3ConfigWithCredentialsProcedure.params, UpdateS3ConfigWithCredentialsProcedure.returnType),
+  __procedureSchema("update_scaleway_email_config_with_credentials", UpdateScalewayEmailConfigWithCredentialsProcedure.params, UpdateScalewayEmailConfigWithCredentialsProcedure.returnType),
 );
 
 /** The remote SpacetimeDB module schema, both runtime and type information. */

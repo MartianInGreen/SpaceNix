@@ -117,6 +117,18 @@ export const DeviceMetricsReport = __t.object("DeviceMetricsReport", {
 });
 export type DeviceMetricsReport = __Infer<typeof DeviceMetricsReport>;
 
+export const EmailVerification = __t.object("EmailVerification", {
+  email: __t.string(),
+  identity: __t.identity(),
+  code: __t.string(),
+  purpose: __t.string(),
+  attempts: __t.u32(),
+  createdAt: __t.timestamp(),
+  expiresAt: __t.timestamp(),
+  verifiedAt: __t.option(__t.timestamp()),
+});
+export type EmailVerification = __Infer<typeof EmailVerification>;
+
 export const FileMetadata = __t.object("FileMetadata", {
   id: __t.u64(),
   name: __t.string(),
@@ -174,6 +186,29 @@ export const S3ConfigStatus = __t.object("S3ConfigStatus", {
   hasSecretAccessKey: __t.bool(),
 });
 export type S3ConfigStatus = __Infer<typeof S3ConfigStatus>;
+
+export const ScalewayEmailConfig = __t.object("ScalewayEmailConfig", {
+  id: __t.u32(),
+  region: __t.string(),
+  secretKey: __t.string(),
+  projectId: __t.string(),
+  fromEmail: __t.string(),
+  fromName: __t.string(),
+  enabled: __t.bool(),
+});
+export type ScalewayEmailConfig = __Infer<typeof ScalewayEmailConfig>;
+
+export const ScalewayEmailConfigStatus = __t.object("ScalewayEmailConfigStatus", {
+  id: __t.u32(),
+  configured: __t.bool(),
+  enabled: __t.bool(),
+  region: __t.string(),
+  hasSecretKey: __t.bool(),
+  hasProjectId: __t.bool(),
+  fromEmail: __t.string(),
+  fromName: __t.string(),
+});
+export type ScalewayEmailConfigStatus = __Infer<typeof ScalewayEmailConfigStatus>;
 
 export const SecretMetadata = __t.object("SecretMetadata", {
   id: __t.u64(),
@@ -378,6 +413,7 @@ export const User = __t.object("User", {
   email: __t.string(),
   displayName: __t.option(__t.string()),
   role: __t.string(),
+  emailVerified: __t.bool(),
   createdAt: __t.timestamp(),
   lastLoginAt: __t.timestamp(),
 });
@@ -404,6 +440,7 @@ export const UserProfile = __t.object("UserProfile", {
   email: __t.string(),
   displayName: __t.option(__t.string()),
   role: __t.string(),
+  emailVerified: __t.bool(),
   createdAt: __t.timestamp(),
   lastLoginAt: __t.timestamp(),
 });

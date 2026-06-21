@@ -26,6 +26,7 @@ import { TerminalPage } from "@/pages/terminal";
 import { PatsPage } from "@/pages/pats";
 import { DevicesPage } from "@/pages/devices";
 import { AccountPage } from "@/pages/account";
+import { VerifyEmailPage } from "@/pages/verify-email";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: false } },
@@ -56,8 +57,15 @@ function ConnectionRoot() {
 }
 
 function Router() {
-  const { status, isAuthenticated, identityHex, restoring, fileEncryptionKey, fileEncryptionError } =
-    useAuth();
+  const {
+    status,
+    isAuthenticated,
+    emailVerified,
+    identityHex,
+    restoring,
+    fileEncryptionKey,
+    fileEncryptionError,
+  } = useAuth();
 
   // Capture a `?callback=…` query param from the URL (set by the SpaceNix
   // CLI / TUI when it spawns the browser) and stash it in sessionStorage so
@@ -130,6 +138,10 @@ function Router() {
         <Route path="*" element={<LoginPage />} />
       </Routes>
     );
+  }
+
+  if (!emailVerified) {
+    return <VerifyEmailPage />;
   }
 
   if (fileEncryptionError) {

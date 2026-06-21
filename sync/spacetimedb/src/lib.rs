@@ -4,6 +4,7 @@ pub mod api_key;
 mod config;
 mod device;
 mod device_metric;
+mod email;
 mod file;
 mod secret;
 mod ssh;
@@ -11,12 +12,8 @@ mod ui_event;
 mod user;
 
 use crate::config::s3_config as _;
+use crate::email::scaleway_email_config as _;
 use crate::user::session as _;
-
-#[spacetimedb::table(accessor = person)]
-pub struct Person {
-    name: String,
-}
 
 #[spacetimedb::reducer(init)]
 pub fn init(ctx: &ReducerContext) {
@@ -30,6 +27,22 @@ pub fn init(ctx: &ReducerContext) {
             secret_access_key: String::new(),
             path_prefix: None,
             public_base_url: None,
+        });
+    }
+    if ctx.db
+        .scaleway_email_config()
+        .id()
+        .find(email::EMAIL_CONFIG_ID)
+        .is_none()
+    {
+        ctx.db.scaleway_email_config().insert(email::ScalewayEmailConfig {
+            id: email::EMAIL_CONFIG_ID,
+            region: String::new(),
+            secret_key: String::new(),
+            project_id: String::new(),
+            from_email: String::new(),
+            from_name: "SpaceNix".to_string(),
+            enabled: true,
         });
     }
 }

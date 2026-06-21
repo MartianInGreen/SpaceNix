@@ -130,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     displayName: user?.displayName ?? null,
     role: user?.role ?? null,
     isAdmin: user?.role === "admin",
+    emailVerified: user?.emailVerified ?? false,
     restoring,
     fileEncryptionKey,
     fileEncryptionError,
