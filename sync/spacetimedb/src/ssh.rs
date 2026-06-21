@@ -1,8 +1,10 @@
 use spacetimedb::{
-    Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, procedure, view,
+    Identity, ReducerContext, SpacetimeType, Table, TimeDuration, Timestamp, ViewContext,
+    procedure, view,
 };
 
 use crate::user::{require_registered_user, session as _, session__view as _};
+use crate::device::device as _;
 
 const NAME_MAX_LEN: usize = 128;
 const FINGERPRINT_MAX_LEN: usize = 128;
@@ -13,6 +15,8 @@ const PRIVATE_KEY_MAX_LEN: usize = 16384;
 const TAG_MAX_LEN: usize = 128;
 const TAG_MAX_COUNT: usize = 64;
 const DEVICE_ID_MAX_COUNT: usize = 64;
+const AUTH_TOKEN_MAX_LEN: usize = 128;
+const SESSION_MAX_LIFETIME_MICROS: i64 = 60 * 60 * 1_000_000;
 
 #[spacetimedb::table(accessor = ssh_key)]
 pub struct SshKey {
@@ -613,4 +617,398 @@ pub fn reveal_ssh_key(
                 updated_at: k.updated_at,
             }))
     })
+}
+
+// ---------------------------------------------------------------------------
+// Browser SSH relay
+// ---------------------------------------------------------------------------
+//
+// Lets a signed-in browser open an interactive SSH session to a registered
+// endpoint by going through one of the user's devices running
+// `spacenix service start` (the "relay"). The browser opens a
+// WebSocket to the relay's local HTTP service, the service validates
+// a per-session token that was minted by the relay and stored in
+// `SshRelaySession.auth_token`, then spawns `ssh(1)` in a pty and
+// bridges bytes.
+//
+// The relay device and the browser both connect to SpacetimeDB as
+// the same user identity; STDB acts purely as the coordination
+// surface (which device is the relay, which session is open, what
+// the per-session auth token is). The actual SSH traffic never
+// touches the database.
+
+#[derive(SpacetimeType, Clone, Debug, PartialEq, Eq)]
+pub enum SshRelaySessionStatus {
+    /// Session row exists, no token attached yet, no ssh running.
+    Pending,
+    /// Relay has minted a token and the browser is connecting.
+    Active,
+    /// Closed by either side. Row kept briefly to drop late WS
+    /// connections, cleaned up by the close reducer.
+    Closed,
+}
+
+/// Designates one of the caller's devices as the SSH relay for browser
+/// sessions. Singleton per owner (primary key = owner).
+#[spacetimedb::table(accessor = ssh_relay_device, public)]
+pub struct SshRelayDevice {
+    #[primary_key]
+    pub owner: Identity,
+    pub device_id: u64,
+    pub updated_at: Timestamp,
+    /// Address the browser can use to reach the relay's HTTP/WS
+    /// service. Set via `set_ssh_relay_device_url` from the Devices
+    /// page. Examples: `ws://laptop.lan:7770`,
+    /// `wss://my-laptop.tail-net.ts.net:7770`.
+    pub listen_url: Option<String>,
+}
+
+#[derive(SpacetimeType, Clone, Debug)]
+pub struct SshRelayDeviceMetadata {
+    pub owner: Identity,
+    pub device_id: u64,
+    pub updated_at: Timestamp,
+    pub listen_url: Option<String>,
+}
+
+impl From<SshRelayDevice> for SshRelayDeviceMetadata {
+    fn from(d: SshRelayDevice) -> Self {
+        Self {
+            owner: d.owner,
+            device_id: d.device_id,
+            updated_at: d.updated_at,
+            listen_url: d.listen_url,
+        }
+    }
+}
+
+#[spacetimedb::table(accessor = ssh_relay_session, public)]
+pub struct SshRelaySession {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub owner: Identity,
+    /// The device the browser is running on. Optional because the
+    /// browser doesn't always know its `device.id`; the relay uses
+    /// it only for diagnostics.
+    pub requester_device_id: Option<u64>,
+    /// The device that will spawn `ssh(1)`. Must reference a device
+    /// owned by the caller and currently set as the relay via
+    /// `ssh_relay_device`.
+    #[index(btree)]
+    pub relay_device_id: u64,
+    /// The endpoint the user wants to connect to. Must be owned by
+    /// the caller, must be enabled.
+    #[index(btree)]
+    pub endpoint_id: u64,
+    pub status: SshRelaySessionStatus,
+    pub created_at: Timestamp,
+    /// Hard cap on the session's lifetime. Relay and browser both
+    /// tear down at or after this point.
+    pub expires_at: Timestamp,
+    /// Opaque bearer token the browser must present when opening the
+    /// WebSocket. Minted by the relay device (see
+    /// `attach_ssh_relay_session_token`) so the session is bound to
+    /// the very same token both sides agreed on, and not forged by
+    /// the row's creator.
+    pub auth_token: Option<String>,
+}
+
+#[derive(SpacetimeType, Clone, Debug)]
+pub struct SshRelaySessionMetadata {
+    pub id: u64,
+    pub owner: Identity,
+    pub requester_device_id: Option<u64>,
+    pub relay_device_id: u64,
+    pub endpoint_id: u64,
+    pub status: SshRelaySessionStatus,
+    pub created_at: Timestamp,
+    pub expires_at: Timestamp,
+    pub auth_token: Option<String>,
+}
+
+impl From<SshRelaySession> for SshRelaySessionMetadata {
+    fn from(s: SshRelaySession) -> Self {
+        Self {
+            id: s.id,
+            owner: s.owner,
+            requester_device_id: s.requester_device_id,
+            relay_device_id: s.relay_device_id,
+            endpoint_id: s.endpoint_id,
+            status: s.status,
+            created_at: s.created_at,
+            expires_at: s.expires_at,
+            auth_token: s.auth_token,
+        }
+    }
+}
+
+fn require_owned_device(ctx: &ReducerContext, id: u64) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
+    let device = ctx
+        .db
+        .device()
+        .id()
+        .find(id)
+        .ok_or_else(|| "device not found".to_string())?;
+    if device.owner != user.identity {
+        return Err("not your device".to_string());
+    }
+    Ok(())
+}
+
+fn require_owned_endpoint_visible(ctx: &ReducerContext, id: u64) -> Result<SshEndpoint, String> {
+    let user = require_registered_user(ctx)?;
+    let ep = ctx
+        .db
+        .ssh_endpoint()
+        .id()
+        .find(id)
+        .ok_or_else(|| "ssh endpoint not found".to_string())?;
+    if ep.owner != user.identity {
+        return Err("not your ssh endpoint".to_string());
+    }
+    Ok(ep)
+}
+
+fn validate_auth_token(token: String) -> Result<String, String> {
+    if token.len() < 16 {
+        return Err("auth_token must be at least 16 characters".to_string());
+    }
+    if token.len() > AUTH_TOKEN_MAX_LEN {
+        return Err(format!(
+            "auth_token must be {AUTH_TOKEN_MAX_LEN} characters or fewer"
+        ));
+    }
+    if !token
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("auth_token must be ASCII alphanumeric, '-' or '_'".to_string());
+    }
+    Ok(token)
+}
+
+#[spacetimedb::reducer]
+pub fn set_ssh_relay_device(
+    ctx: &ReducerContext,
+    device_id: u64,
+) -> Result<(), String> {
+    require_registered_user(ctx)?;
+    require_owned_device(ctx, device_id)?;
+    if ctx
+        .db
+        .ssh_relay_device()
+        .owner()
+        .find(ctx.sender())
+        .is_some()
+    {
+        let existing = ctx.db.ssh_relay_device().owner().find(ctx.sender()).unwrap();
+        ctx.db.ssh_relay_device().owner().update(SshRelayDevice {
+            device_id,
+            updated_at: ctx.timestamp,
+            ..existing
+        });
+    } else {
+        ctx.db.ssh_relay_device().insert(SshRelayDevice {
+            owner: ctx.sender(),
+            device_id,
+            updated_at: ctx.timestamp,
+            listen_url: None,
+        });
+    }
+    Ok(())
+}
+
+#[spacetimedb::reducer]
+pub fn clear_ssh_relay_device(ctx: &ReducerContext) -> Result<(), String> {
+    require_registered_user(ctx)?;
+    if ctx
+        .db
+        .ssh_relay_device()
+        .owner()
+        .find(ctx.sender())
+        .is_some()
+    {
+        ctx.db.ssh_relay_device().owner().delete(ctx.sender());
+    }
+    Ok(())
+}
+
+const LISTEN_URL_MAX_LEN: usize = 512;
+
+fn validate_listen_url(url: String) -> Result<String, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("listen url cannot be empty".to_string());
+    }
+    if url.len() > LISTEN_URL_MAX_LEN {
+        return Err(format!(
+            "listen url must be {LISTEN_URL_MAX_LEN} characters or fewer"
+        ));
+    }
+    // We accept ws://, wss://, http://, https://, or a bare
+    // host:port. We don't try to resolve anything; the URL is
+    // passed straight to the browser.
+    if !(url.starts_with("ws://")
+        || url.starts_with("wss://")
+        || url.starts_with("http://")
+        || url.starts_with("https://"))
+    {
+        return Err(
+            "listen url must start with ws://, wss://, http://, or https://".to_string(),
+        );
+    }
+    Ok(url)
+}
+
+/// Set or clear the address the browser can use to reach the
+/// relay's HTTP/WS service. Pass an empty string to clear.
+#[spacetimedb::reducer]
+pub fn set_ssh_relay_device_url(
+    ctx: &ReducerContext,
+    url: String,
+) -> Result<(), String> {
+    require_registered_user(ctx)?;
+    let existing = ctx
+        .db
+        .ssh_relay_device()
+        .owner()
+        .find(ctx.sender())
+        .ok_or_else(|| "no ssh relay device is set".to_string())?;
+    let new_url = if url.trim().is_empty() {
+        None
+    } else {
+        Some(validate_listen_url(url)?)
+    };
+    ctx.db.ssh_relay_device().owner().update(SshRelayDevice {
+        listen_url: new_url,
+        updated_at: ctx.timestamp,
+        ..existing
+    });
+    Ok(())
+}
+
+#[spacetimedb::reducer]
+pub fn open_ssh_relay_session(
+    ctx: &ReducerContext,
+    relay_device_id: u64,
+    endpoint_id: u64,
+    requester_device_id: Option<u64>,
+) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
+    require_owned_device(ctx, relay_device_id)?;
+    let ep = require_owned_endpoint_visible(ctx, endpoint_id)?;
+    if !ep.enabled {
+        return Err("ssh endpoint is disabled".to_string());
+    }
+    let relay = ctx
+        .db
+        .ssh_relay_device()
+        .owner()
+        .find(user.identity)
+        .ok_or_else(|| "no ssh relay device set for this account".to_string())?;
+    if relay.device_id != relay_device_id {
+        return Err(format!(
+            "device #{relay_device_id} is not the configured relay; \
+             current relay is device #{}",
+            relay.device_id
+        ));
+    }
+    if let Some(rid) = requester_device_id {
+        require_owned_device(ctx, rid)?;
+    }
+    ctx.db.ssh_relay_session().insert(SshRelaySession {
+        id: 0,
+        owner: user.identity,
+        requester_device_id,
+        relay_device_id,
+        endpoint_id,
+        status: SshRelaySessionStatus::Pending,
+        created_at: ctx.timestamp,
+        expires_at: ctx.timestamp + TimeDuration::from_micros(SESSION_MAX_LIFETIME_MICROS),
+        auth_token: None,
+    });
+    Ok(())
+}
+
+/// Called by the relay device once it has minted a session-specific
+/// token (e.g. via `rand`). The browser learns the token by reading
+/// `my_ssh_relay_sessions.auth_token` and uses it as a bearer token
+/// when opening the WebSocket. The relay device verifies the same
+/// token on the WS upgrade.
+#[spacetimedb::reducer]
+pub fn attach_ssh_relay_session_token(
+    ctx: &ReducerContext,
+    session_id: u64,
+    token: String,
+) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
+    let token = validate_auth_token(token)?;
+    let session = ctx
+        .db
+        .ssh_relay_session()
+        .id()
+        .find(session_id)
+        .ok_or_else(|| "ssh relay session not found".to_string())?;
+    if session.owner != user.identity {
+        return Err("not your ssh relay session".to_string());
+    }
+    if session.status == SshRelaySessionStatus::Closed {
+        return Err("ssh relay session is closed".to_string());
+    }
+    // Authorise: the caller must own `relay_device_id` (which they
+    // always do, since the session is theirs) AND the device row
+    // must still exist.
+    let _ = ctx
+        .db
+        .device()
+        .id()
+        .find(session.relay_device_id)
+        .ok_or_else(|| "relay device no longer exists".to_string())?;
+    ctx.db.ssh_relay_session().id().update(SshRelaySession {
+        status: SshRelaySessionStatus::Active,
+        auth_token: Some(token),
+        ..session
+    });
+    Ok(())
+}
+
+#[spacetimedb::reducer]
+pub fn close_ssh_relay_session(ctx: &ReducerContext, session_id: u64) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
+    let session = ctx
+        .db
+        .ssh_relay_session()
+        .id()
+        .find(session_id)
+        .ok_or_else(|| "ssh relay session not found".to_string())?;
+    if session.owner != user.identity {
+        return Err("not your ssh relay session".to_string());
+    }
+    ctx.db.ssh_relay_session().id().delete(session_id);
+    Ok(())
+}
+
+#[view(accessor = my_ssh_relay_device, public)]
+fn my_ssh_relay_device(ctx: &ViewContext) -> Option<SshRelayDeviceMetadata> {
+    ctx.db
+        .ssh_relay_device()
+        .owner()
+        .find(ctx.sender())
+        .map(SshRelayDeviceMetadata::from)
+}
+
+#[view(accessor = my_ssh_relay_sessions, public)]
+fn my_ssh_relay_sessions(ctx: &ViewContext) -> Vec<SshRelaySessionMetadata> {
+    let Some(user) = ctx.db.session().connection().find(ctx.sender()).map(|s| s.user) else {
+        return Vec::new();
+    };
+    ctx.db
+        .ssh_relay_session()
+        .owner()
+        .filter(user)
+        .map(SshRelaySessionMetadata::from)
+        .collect()
 }

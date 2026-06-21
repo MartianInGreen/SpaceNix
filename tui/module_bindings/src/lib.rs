@@ -19,6 +19,9 @@ pub mod ack_ui_command_reducer;
 pub mod api_key_has_permission_procedure;
 pub mod api_key_metadata_type;
 pub mod api_key_type;
+pub mod attach_ssh_relay_session_token_reducer;
+pub mod clear_ssh_relay_device_reducer;
+pub mod close_ssh_relay_session_reducer;
 pub mod create_api_key_procedure;
 pub mod create_folder_reducer;
 pub mod created_api_key_type;
@@ -43,8 +46,11 @@ pub mod my_files_table;
 pub mod my_secrets_table;
 pub mod my_ssh_endpoints_table;
 pub mod my_ssh_keys_table;
+pub mod my_ssh_relay_device_table;
+pub mod my_ssh_relay_sessions_table;
 pub mod my_ui_commands_table;
 pub mod my_user_table;
+pub mod open_ssh_relay_session_reducer;
 pub mod password_credential_type;
 pub mod person_type;
 pub mod prune_device_metrics_reducer;
@@ -82,6 +88,7 @@ pub mod set_ssh_key_devices_reducer;
 pub mod set_ssh_key_reducer;
 pub mod set_ssh_key_tags_reducer;
 pub mod set_ssh_key_value_reducer;
+pub mod set_ssh_relay_device_reducer;
 pub mod sign_in_reducer;
 pub mod sign_out_reducer;
 pub mod sign_up_reducer;
@@ -90,6 +97,13 @@ pub mod ssh_endpoint_type;
 pub mod ssh_key_metadata_type;
 pub mod ssh_key_type;
 pub mod ssh_key_value_type;
+pub mod ssh_relay_device_metadata_type;
+pub mod ssh_relay_device_table;
+pub mod ssh_relay_device_type;
+pub mod ssh_relay_session_metadata_type;
+pub mod ssh_relay_session_status_type;
+pub mod ssh_relay_session_table;
+pub mod ssh_relay_session_type;
 pub mod touch_device_reducer;
 pub mod ui_command_metadata_type;
 pub mod ui_command_table;
@@ -112,6 +126,9 @@ pub use ack_ui_command_reducer::ack_ui_command;
 pub use api_key_has_permission_procedure::api_key_has_permission;
 pub use api_key_metadata_type::ApiKeyMetadata;
 pub use api_key_type::ApiKey;
+pub use attach_ssh_relay_session_token_reducer::attach_ssh_relay_session_token;
+pub use clear_ssh_relay_device_reducer::clear_ssh_relay_device;
+pub use close_ssh_relay_session_reducer::close_ssh_relay_session;
 pub use create_api_key_procedure::create_api_key;
 pub use create_folder_reducer::create_folder;
 pub use created_api_key_type::CreatedApiKey;
@@ -136,8 +153,11 @@ pub use my_files_table::*;
 pub use my_secrets_table::*;
 pub use my_ssh_endpoints_table::*;
 pub use my_ssh_keys_table::*;
+pub use my_ssh_relay_device_table::*;
+pub use my_ssh_relay_sessions_table::*;
 pub use my_ui_commands_table::*;
 pub use my_user_table::*;
+pub use open_ssh_relay_session_reducer::open_ssh_relay_session;
 pub use password_credential_type::PasswordCredential;
 pub use person_type::Person;
 pub use prune_device_metrics_reducer::prune_device_metrics;
@@ -175,6 +195,7 @@ pub use set_ssh_key_devices_reducer::set_ssh_key_devices;
 pub use set_ssh_key_reducer::set_ssh_key;
 pub use set_ssh_key_tags_reducer::set_ssh_key_tags;
 pub use set_ssh_key_value_reducer::set_ssh_key_value;
+pub use set_ssh_relay_device_reducer::set_ssh_relay_device;
 pub use sign_in_reducer::sign_in;
 pub use sign_out_reducer::sign_out;
 pub use sign_up_reducer::sign_up;
@@ -183,6 +204,13 @@ pub use ssh_endpoint_type::SshEndpoint;
 pub use ssh_key_metadata_type::SshKeyMetadata;
 pub use ssh_key_type::SshKey;
 pub use ssh_key_value_type::SshKeyValue;
+pub use ssh_relay_device_metadata_type::SshRelayDeviceMetadata;
+pub use ssh_relay_device_table::*;
+pub use ssh_relay_device_type::SshRelayDevice;
+pub use ssh_relay_session_metadata_type::SshRelaySessionMetadata;
+pub use ssh_relay_session_status_type::SshRelaySessionStatus;
+pub use ssh_relay_session_table::*;
+pub use ssh_relay_session_type::SshRelaySession;
 pub use touch_device_reducer::touch_device;
 pub use ui_command_metadata_type::UiCommandMetadata;
 pub use ui_command_table::*;
@@ -213,6 +241,14 @@ pub enum Reducer {
         command_id: u64,
         device_id: u64,
     },
+    AttachSshRelaySessionToken {
+        session_id: u64,
+        token: String,
+    },
+    ClearSshRelayDevice,
+    CloseSshRelaySession {
+        session_id: u64,
+    },
     CreateFolder {
         name: String,
         tree_path: Option<String>,
@@ -237,6 +273,11 @@ pub enum Reducer {
         file_id: u64,
         hash: String,
         size_bytes: u64,
+    },
+    OpenSshRelaySession {
+        relay_device_id: u64,
+        endpoint_id: u64,
+        requester_device_id: Option<u64>,
     },
     PruneDeviceMetrics {
         device_id: u64,
@@ -344,6 +385,9 @@ pub enum Reducer {
         public_key: String,
         private_key: String,
     },
+    SetSshRelayDevice {
+        device_id: u64,
+    },
     SignIn {
         email: String,
         password: String,
@@ -395,6 +439,9 @@ impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
             Reducer::AckUiCommand { .. } => "ack_ui_command",
+            Reducer::AttachSshRelaySessionToken { .. } => "attach_ssh_relay_session_token",
+            Reducer::ClearSshRelayDevice => "clear_ssh_relay_device",
+            Reducer::CloseSshRelaySession { .. } => "close_ssh_relay_session",
             Reducer::CreateFolder { .. } => "create_folder",
             Reducer::DeleteDevice { .. } => "delete_device",
             Reducer::DeleteFile { .. } => "delete_file",
@@ -402,6 +449,7 @@ impl __sdk::Reducer for Reducer {
             Reducer::DeleteSshEndpoint { .. } => "delete_ssh_endpoint",
             Reducer::DeleteSshKey { .. } => "delete_ssh_key",
             Reducer::FinalizeUpload { .. } => "finalize_upload",
+            Reducer::OpenSshRelaySession { .. } => "open_ssh_relay_session",
             Reducer::PruneDeviceMetrics { .. } => "prune_device_metrics",
             Reducer::RegisterDevice { .. } => "register_device",
             Reducer::RegisterFile { .. } => "register_file",
@@ -424,6 +472,7 @@ impl __sdk::Reducer for Reducer {
             Reducer::SetSshKeyDevices { .. } => "set_ssh_key_devices",
             Reducer::SetSshKeyTags { .. } => "set_ssh_key_tags",
             Reducer::SetSshKeyValue { .. } => "set_ssh_key_value",
+            Reducer::SetSshRelayDevice { .. } => "set_ssh_relay_device",
             Reducer::SignIn { .. } => "sign_in",
             Reducer::SignOut => "sign_out",
             Reducer::SignUp { .. } => "sign_up",
@@ -446,6 +495,20 @@ impl __sdk::Reducer for Reducer {
                 command_id: command_id.clone(),
                 device_id: device_id.clone(),
             }),
+            Reducer::AttachSshRelaySessionToken { session_id, token } => __sats::bsatn::to_vec(
+                &attach_ssh_relay_session_token_reducer::AttachSshRelaySessionTokenArgs {
+                    session_id: session_id.clone(),
+                    token: token.clone(),
+                },
+            ),
+            Reducer::ClearSshRelayDevice => {
+                __sats::bsatn::to_vec(&clear_ssh_relay_device_reducer::ClearSshRelayDeviceArgs {})
+            }
+            Reducer::CloseSshRelaySession { session_id } => {
+                __sats::bsatn::to_vec(&close_ssh_relay_session_reducer::CloseSshRelaySessionArgs {
+                    session_id: session_id.clone(),
+                })
+            }
             Reducer::CreateFolder {
                 name,
                 tree_path,
@@ -484,6 +547,15 @@ impl __sdk::Reducer for Reducer {
                 file_id: file_id.clone(),
                 hash: hash.clone(),
                 size_bytes: size_bytes.clone(),
+            }),
+            Reducer::OpenSshRelaySession {
+                relay_device_id,
+                endpoint_id,
+                requester_device_id,
+            } => __sats::bsatn::to_vec(&open_ssh_relay_session_reducer::OpenSshRelaySessionArgs {
+                relay_device_id: relay_device_id.clone(),
+                endpoint_id: endpoint_id.clone(),
+                requester_device_id: requester_device_id.clone(),
             }),
             Reducer::PruneDeviceMetrics {
                 device_id,
@@ -666,6 +738,11 @@ impl __sdk::Reducer for Reducer {
                 public_key: public_key.clone(),
                 private_key: private_key.clone(),
             }),
+            Reducer::SetSshRelayDevice { device_id } => {
+                __sats::bsatn::to_vec(&set_ssh_relay_device_reducer::SetSshRelayDeviceArgs {
+                    device_id: device_id.clone(),
+                })
+            }
             Reducer::SignIn { email, password } => {
                 __sats::bsatn::to_vec(&sign_in_reducer::SignInArgs {
                     email: email.clone(),
@@ -756,9 +833,13 @@ pub struct DbUpdate {
     my_secrets: __sdk::TableUpdate<SecretMetadata>,
     my_ssh_endpoints: __sdk::TableUpdate<SshEndpointMetadata>,
     my_ssh_keys: __sdk::TableUpdate<SshKeyMetadata>,
+    my_ssh_relay_device: __sdk::TableUpdate<SshRelayDeviceMetadata>,
+    my_ssh_relay_sessions: __sdk::TableUpdate<SshRelaySessionMetadata>,
     my_ui_commands: __sdk::TableUpdate<UiCommandMetadata>,
     my_user: __sdk::TableUpdate<UserProfile>,
     s_3_config_status: __sdk::TableUpdate<S3ConfigStatus>,
+    ssh_relay_device: __sdk::TableUpdate<SshRelayDevice>,
+    ssh_relay_session: __sdk::TableUpdate<SshRelaySession>,
     ui_command: __sdk::TableUpdate<UiCommand>,
     ui_event: __sdk::TableUpdate<UiEvent>,
 }
@@ -790,6 +871,12 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "my_ssh_keys" => db_update
                     .my_ssh_keys
                     .append(my_ssh_keys_table::parse_table_update(table_update)?),
+                "my_ssh_relay_device" => db_update
+                    .my_ssh_relay_device
+                    .append(my_ssh_relay_device_table::parse_table_update(table_update)?),
+                "my_ssh_relay_sessions" => db_update.my_ssh_relay_sessions.append(
+                    my_ssh_relay_sessions_table::parse_table_update(table_update)?,
+                ),
                 "my_ui_commands" => db_update
                     .my_ui_commands
                     .append(my_ui_commands_table::parse_table_update(table_update)?),
@@ -799,6 +886,12 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "s_3_config_status" => db_update
                     .s_3_config_status
                     .append(s_3_config_status_table::parse_table_update(table_update)?),
+                "ssh_relay_device" => db_update
+                    .ssh_relay_device
+                    .append(ssh_relay_device_table::parse_table_update(table_update)?),
+                "ssh_relay_session" => db_update
+                    .ssh_relay_session
+                    .append(ssh_relay_session_table::parse_table_update(table_update)?),
                 "ui_command" => db_update
                     .ui_command
                     .append(ui_command_table::parse_table_update(table_update)?),
@@ -831,6 +924,12 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
+        diff.ssh_relay_device = cache
+            .apply_diff_to_table::<SshRelayDevice>("ssh_relay_device", &self.ssh_relay_device)
+            .with_updates_by_pk(|row| &row.owner);
+        diff.ssh_relay_session = cache
+            .apply_diff_to_table::<SshRelaySession>("ssh_relay_session", &self.ssh_relay_session)
+            .with_updates_by_pk(|row| &row.id);
         diff.ui_command = cache
             .apply_diff_to_table::<UiCommand>("ui_command", &self.ui_command)
             .with_updates_by_pk(|row| &row.id);
@@ -850,6 +949,14 @@ impl __sdk::DbUpdate for DbUpdate {
             .apply_diff_to_table::<SshEndpointMetadata>("my_ssh_endpoints", &self.my_ssh_endpoints);
         diff.my_ssh_keys =
             cache.apply_diff_to_table::<SshKeyMetadata>("my_ssh_keys", &self.my_ssh_keys);
+        diff.my_ssh_relay_device = cache.apply_diff_to_table::<SshRelayDeviceMetadata>(
+            "my_ssh_relay_device",
+            &self.my_ssh_relay_device,
+        );
+        diff.my_ssh_relay_sessions = cache.apply_diff_to_table::<SshRelaySessionMetadata>(
+            "my_ssh_relay_sessions",
+            &self.my_ssh_relay_sessions,
+        );
         diff.my_ui_commands =
             cache.apply_diff_to_table::<UiCommandMetadata>("my_ui_commands", &self.my_ui_commands);
         diff.my_user = cache.apply_diff_to_table::<UserProfile>("my_user", &self.my_user);
@@ -883,6 +990,12 @@ impl __sdk::DbUpdate for DbUpdate {
                 "my_ssh_keys" => db_update
                     .my_ssh_keys
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "my_ssh_relay_device" => db_update
+                    .my_ssh_relay_device
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "my_ssh_relay_sessions" => db_update
+                    .my_ssh_relay_sessions
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "my_ui_commands" => db_update
                     .my_ui_commands
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
@@ -891,6 +1004,12 @@ impl __sdk::DbUpdate for DbUpdate {
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "s_3_config_status" => db_update
                     .s_3_config_status
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "ssh_relay_device" => db_update
+                    .ssh_relay_device
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "ssh_relay_session" => db_update
+                    .ssh_relay_session
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "ui_command" => db_update
                     .ui_command
@@ -932,6 +1051,12 @@ impl __sdk::DbUpdate for DbUpdate {
                 "my_ssh_keys" => db_update
                     .my_ssh_keys
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "my_ssh_relay_device" => db_update
+                    .my_ssh_relay_device
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "my_ssh_relay_sessions" => db_update
+                    .my_ssh_relay_sessions
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "my_ui_commands" => db_update
                     .my_ui_commands
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -940,6 +1065,12 @@ impl __sdk::DbUpdate for DbUpdate {
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "s_3_config_status" => db_update
                     .s_3_config_status
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "ssh_relay_device" => db_update
+                    .ssh_relay_device
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "ssh_relay_session" => db_update
+                    .ssh_relay_session
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "ui_command" => db_update
                     .ui_command
@@ -969,9 +1100,13 @@ pub struct AppliedDiff<'r> {
     my_secrets: __sdk::TableAppliedDiff<'r, SecretMetadata>,
     my_ssh_endpoints: __sdk::TableAppliedDiff<'r, SshEndpointMetadata>,
     my_ssh_keys: __sdk::TableAppliedDiff<'r, SshKeyMetadata>,
+    my_ssh_relay_device: __sdk::TableAppliedDiff<'r, SshRelayDeviceMetadata>,
+    my_ssh_relay_sessions: __sdk::TableAppliedDiff<'r, SshRelaySessionMetadata>,
     my_ui_commands: __sdk::TableAppliedDiff<'r, UiCommandMetadata>,
     my_user: __sdk::TableAppliedDiff<'r, UserProfile>,
     s_3_config_status: __sdk::TableAppliedDiff<'r, S3ConfigStatus>,
+    ssh_relay_device: __sdk::TableAppliedDiff<'r, SshRelayDevice>,
+    ssh_relay_session: __sdk::TableAppliedDiff<'r, SshRelaySession>,
     ui_command: __sdk::TableAppliedDiff<'r, UiCommand>,
     ui_event: __sdk::TableAppliedDiff<'r, UiEvent>,
     __unused: std::marker::PhantomData<&'r ()>,
@@ -1018,6 +1153,16 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
             &self.my_ssh_keys,
             event,
         );
+        callbacks.invoke_table_row_callbacks::<SshRelayDeviceMetadata>(
+            "my_ssh_relay_device",
+            &self.my_ssh_relay_device,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<SshRelaySessionMetadata>(
+            "my_ssh_relay_sessions",
+            &self.my_ssh_relay_sessions,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<UiCommandMetadata>(
             "my_ui_commands",
             &self.my_ui_commands,
@@ -1027,6 +1172,16 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         callbacks.invoke_table_row_callbacks::<S3ConfigStatus>(
             "s_3_config_status",
             &self.s_3_config_status,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<SshRelayDevice>(
+            "ssh_relay_device",
+            &self.ssh_relay_device,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<SshRelaySession>(
+            "ssh_relay_session",
+            &self.ssh_relay_session,
             event,
         );
         callbacks.invoke_table_row_callbacks::<UiCommand>("ui_command", &self.ui_command, event);
@@ -1698,9 +1853,13 @@ impl __sdk::SpacetimeModule for RemoteModule {
         my_secrets_table::register_table(client_cache);
         my_ssh_endpoints_table::register_table(client_cache);
         my_ssh_keys_table::register_table(client_cache);
+        my_ssh_relay_device_table::register_table(client_cache);
+        my_ssh_relay_sessions_table::register_table(client_cache);
         my_ui_commands_table::register_table(client_cache);
         my_user_table::register_table(client_cache);
         s_3_config_status_table::register_table(client_cache);
+        ssh_relay_device_table::register_table(client_cache);
+        ssh_relay_session_table::register_table(client_cache);
         ui_command_table::register_table(client_cache);
         ui_event_table::register_table(client_cache);
     }
@@ -1712,9 +1871,13 @@ impl __sdk::SpacetimeModule for RemoteModule {
         "my_secrets",
         "my_ssh_endpoints",
         "my_ssh_keys",
+        "my_ssh_relay_device",
+        "my_ssh_relay_sessions",
         "my_ui_commands",
         "my_user",
         "s_3_config_status",
+        "ssh_relay_device",
+        "ssh_relay_session",
         "ui_command",
         "ui_event",
     ];

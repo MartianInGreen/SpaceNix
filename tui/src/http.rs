@@ -1,6 +1,7 @@
 //! Local HTTP API for the background service.
 //!
-//! Endpoints (all bound to 127.0.0.1):
+//! Endpoints (bound to `127.0.0.1` by default; pass `--bind 0.0.0.0`
+//! to `service start` for Tailscale / LAN access):
 //!
 //! - `GET  /health`                 — liveness check
 //! - `GET  /whoami`                 — current identity (from cached connection)
@@ -11,6 +12,7 @@
 //! - `GET  /files`                  — list files / folders
 //! - `GET  /sync`                   — current local sync selection
 //! - `POST /sync`                   — add / remove items from the selection
+//! - `GET  /ssh/sessions/:id`       — WebSocket relay to a registered SSH endpoint
 
 use std::sync::Arc;
 
@@ -29,7 +31,7 @@ use crate::store::sync::SyncSelection;
 pub type SharedConn = Option<Arc<ConnState>>;
 
 pub fn router(config: Arc<Config>, conn: SharedConn) -> Router {
-    Router::new()
+    let api = Router::new()
         .route("/health", get(health))
         .route("/whoami", get(whoami))
         .route("/secrets", get(list_secrets).post(create_secret))
@@ -39,7 +41,15 @@ pub fn router(config: Arc<Config>, conn: SharedConn) -> Router {
         )
         .route("/files", get(list_files))
         .route("/sync", get(sync_status).post(sync_toggle))
-        .with_state(AppState { config, conn })
+        .with_state(AppState {
+            config: Arc::clone(&config),
+            conn: conn.clone(),
+        });
+    let relay = match conn.clone() {
+        Some(conn) => crate::relay::router(crate::relay::RelayState { config, conn }),
+        None => Router::new().with_state(()),
+    };
+    api.merge(relay)
 }
 
 #[derive(Clone)]

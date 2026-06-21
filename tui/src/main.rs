@@ -14,6 +14,7 @@ mod cmd;
 mod config;
 mod http;
 mod metrics;
+mod relay;
 mod service;
 mod store;
 mod tui;
@@ -131,9 +132,10 @@ fn run() -> Result<ExitCode> {
     // runtimes). So: if this is a non-foreground start, do the fork
     // here on a thread that has never touched a runtime, and only the
     // child falls through to build its own runtime.
-    if let Command::Service(service::ServiceCommand::Start { port, foreground }) = &cli.command {
+    if let Command::Service(service::ServiceCommand::Start { port, foreground, bind }) = &cli.command {
         let port = *port;
         let foreground = *foreground;
+        let bind = bind.clone();
 
         // Already-running check. A stale lock (the recorded pid is no
         // longer alive) is treated as "not running" so a crash loop
@@ -167,7 +169,7 @@ fn run() -> Result<ExitCode> {
                                 .flatten()
                                 .map(|l| l.port.to_string())
                                 .unwrap_or_else(|| "?".to_string());
-                            println!("spacenix service listening on http://127.0.0.1:{port}");
+                            println!("spacenix service listening on http://{bind}:{port}");
                             println!("pid: {child_pid}");
                             println!("log:  {}/service.log", config.config_dir.display());
                             println!("stop: `spacenix service stop`");
@@ -182,7 +184,7 @@ fn run() -> Result<ExitCode> {
                                 .enable_all()
                                 .build()
                                 .context("building tokio runtime")?;
-                            rt.block_on(service::run_service(config, port))
+                            rt.block_on(service::run_service(config, port, Some(bind)))
                         }
                         service::DaemonizeOutcome::Child => {
                             // Grandchild. Build a fresh multi-threaded
@@ -195,7 +197,7 @@ fn run() -> Result<ExitCode> {
                                 .enable_all()
                                 .build()
                                 .context("building tokio runtime")?;
-                            rt.block_on(service::run_service(config, port))
+                            rt.block_on(service::run_service(config, port, Some(bind)))
                         }
                     }
                 })

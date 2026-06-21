@@ -35,6 +35,9 @@ import {
 
 // Import all reducer arg schemas
 import AckUiCommandReducer from "./ack_ui_command_reducer";
+import AttachSshRelaySessionTokenReducer from "./attach_ssh_relay_session_token_reducer";
+import ClearSshRelayDeviceReducer from "./clear_ssh_relay_device_reducer";
+import CloseSshRelaySessionReducer from "./close_ssh_relay_session_reducer";
 import CreateFolderReducer from "./create_folder_reducer";
 import DeleteDeviceReducer from "./delete_device_reducer";
 import DeleteFileReducer from "./delete_file_reducer";
@@ -42,6 +45,7 @@ import DeleteSecretReducer from "./delete_secret_reducer";
 import DeleteSshEndpointReducer from "./delete_ssh_endpoint_reducer";
 import DeleteSshKeyReducer from "./delete_ssh_key_reducer";
 import FinalizeUploadReducer from "./finalize_upload_reducer";
+import OpenSshRelaySessionReducer from "./open_ssh_relay_session_reducer";
 import PruneDeviceMetricsReducer from "./prune_device_metrics_reducer";
 import RegisterDeviceReducer from "./register_device_reducer";
 import RegisterFileReducer from "./register_file_reducer";
@@ -64,6 +68,8 @@ import SetSshKeyReducer from "./set_ssh_key_reducer";
 import SetSshKeyDevicesReducer from "./set_ssh_key_devices_reducer";
 import SetSshKeyTagsReducer from "./set_ssh_key_tags_reducer";
 import SetSshKeyValueReducer from "./set_ssh_key_value_reducer";
+import SetSshRelayDeviceReducer from "./set_ssh_relay_device_reducer";
+import SetSshRelayDeviceUrlReducer from "./set_ssh_relay_device_url_reducer";
 import SignInReducer from "./sign_in_reducer";
 import SignOutReducer from "./sign_out_reducer";
 import SignUpReducer from "./sign_up_reducer";
@@ -95,9 +101,13 @@ import MyFilesRow from "./my_files_table";
 import MySecretsRow from "./my_secrets_table";
 import MySshEndpointsRow from "./my_ssh_endpoints_table";
 import MySshKeysRow from "./my_ssh_keys_table";
+import MySshRelayDeviceRow from "./my_ssh_relay_device_table";
+import MySshRelaySessionsRow from "./my_ssh_relay_sessions_table";
 import MyUiCommandsRow from "./my_ui_commands_table";
 import MyUserRow from "./my_user_table";
 import S3ConfigStatusRow from "./s_3_config_status_table";
+import SshRelayDeviceRow from "./ssh_relay_device_table";
+import SshRelaySessionRow from "./ssh_relay_session_table";
 import UiCommandRow from "./ui_command_table";
 import UiEventRow from "./ui_event_table";
 
@@ -105,6 +115,37 @@ import UiEventRow from "./ui_event_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  ssh_relay_device: __table({
+    name: 'ssh_relay_device',
+    indexes: [
+      { accessor: 'owner', name: 'ssh_relay_device_owner_idx_btree', algorithm: 'btree', columns: [
+        'owner',
+      ] },
+    ],
+    constraints: [
+      { name: 'ssh_relay_device_owner_key', constraint: 'unique', columns: ['owner'] },
+    ],
+  }, SshRelayDeviceRow),
+  ssh_relay_session: __table({
+    name: 'ssh_relay_session',
+    indexes: [
+      { accessor: 'endpoint_id', name: 'ssh_relay_session_endpoint_id_idx_btree', algorithm: 'btree', columns: [
+        'endpointId',
+      ] },
+      { accessor: 'id', name: 'ssh_relay_session_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'owner', name: 'ssh_relay_session_owner_idx_btree', algorithm: 'btree', columns: [
+        'owner',
+      ] },
+      { accessor: 'relay_device_id', name: 'ssh_relay_session_relay_device_id_idx_btree', algorithm: 'btree', columns: [
+        'relayDeviceId',
+      ] },
+    ],
+    constraints: [
+      { name: 'ssh_relay_session_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SshRelaySessionRow),
   ui_command: __table({
     name: 'ui_command',
     indexes: [
@@ -176,6 +217,20 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MySshKeysRow),
+  my_ssh_relay_device: __table({
+    name: 'my_ssh_relay_device',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MySshRelayDeviceRow),
+  my_ssh_relay_sessions: __table({
+    name: 'my_ssh_relay_sessions',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MySshRelaySessionsRow),
   my_ui_commands: __table({
     name: 'my_ui_commands',
     indexes: [
@@ -202,6 +257,9 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("ack_ui_command", AckUiCommandReducer),
+  __reducerSchema("attach_ssh_relay_session_token", AttachSshRelaySessionTokenReducer),
+  __reducerSchema("clear_ssh_relay_device", ClearSshRelayDeviceReducer),
+  __reducerSchema("close_ssh_relay_session", CloseSshRelaySessionReducer),
   __reducerSchema("create_folder", CreateFolderReducer),
   __reducerSchema("delete_device", DeleteDeviceReducer),
   __reducerSchema("delete_file", DeleteFileReducer),
@@ -209,6 +267,7 @@ const reducersSchema = __reducers(
   __reducerSchema("delete_ssh_endpoint", DeleteSshEndpointReducer),
   __reducerSchema("delete_ssh_key", DeleteSshKeyReducer),
   __reducerSchema("finalize_upload", FinalizeUploadReducer),
+  __reducerSchema("open_ssh_relay_session", OpenSshRelaySessionReducer),
   __reducerSchema("prune_device_metrics", PruneDeviceMetricsReducer),
   __reducerSchema("register_device", RegisterDeviceReducer),
   __reducerSchema("register_file", RegisterFileReducer),
@@ -231,6 +290,8 @@ const reducersSchema = __reducers(
   __reducerSchema("set_ssh_key_devices", SetSshKeyDevicesReducer),
   __reducerSchema("set_ssh_key_tags", SetSshKeyTagsReducer),
   __reducerSchema("set_ssh_key_value", SetSshKeyValueReducer),
+  __reducerSchema("set_ssh_relay_device", SetSshRelayDeviceReducer),
+  __reducerSchema("set_ssh_relay_device_url", SetSshRelayDeviceUrlReducer),
   __reducerSchema("sign_in", SignInReducer),
   __reducerSchema("sign_out", SignOutReducer),
   __reducerSchema("sign_up", SignUpReducer),

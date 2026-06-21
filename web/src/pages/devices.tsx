@@ -275,12 +275,17 @@ export function DevicesPage() {
   const [rows, ready] = useTable(tables.my_devices);
   const [sshEndpointRows] = useTable(tables.my_ssh_endpoints);
   const [metricRows] = useTable(tables.my_device_metrics);
+  const [relayDeviceRows] = useTable(tables.my_ssh_relay_device);
   const registerDevice = useReducer(reducers.registerDevice);
   const renameDevice = useReducer(reducers.renameDevice);
   const setDeviceHostname = useReducer(reducers.setDeviceHostname);
   const deleteDevice = useReducer(reducers.deleteDevice);
   const setSshEndpointDevices = useReducer(reducers.setSshEndpointDevices);
   const setSshEndpointEnabled = useReducer(reducers.setSshEndpointEnabled);
+  const setSshRelayDevice = useReducer(reducers.setSshRelayDevice);
+  const setSshRelayDeviceUrl = useReducer(reducers.setSshRelayDeviceUrl);
+  const clearSshRelayDevice = useReducer(reducers.clearSshRelayDevice);
+  const relayDevice = relayDeviceRows[0];
 
   const [registerOpen, setRegisterOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DeviceMetadata | null>(null);
@@ -328,6 +333,8 @@ export function DevicesPage() {
 
       <EditDeviceDialog
         device={editing}
+        isRelay={editing ? relayDevice?.deviceId === editing.id : false}
+        initialListenUrl={relayDevice?.listenUrl ?? ""}
         onOpenChange={(o) => !o && setEditing(null)}
         onRename={async (name) => {
           if (!editing) return;
@@ -336,6 +343,17 @@ export function DevicesPage() {
         onSetHostname={async (hostname) => {
           if (!editing) return;
           await setDeviceHostname({ deviceId: editing.id, hostname: hostname || undefined });
+        }}
+        onSetRelay={async (enabled) => {
+          if (!editing) return;
+          if (enabled) {
+            await setSshRelayDevice({ deviceId: editing.id });
+          } else if (relayDevice?.deviceId === editing.id) {
+            await clearSshRelayDevice();
+          }
+        }}
+        onSaveListenUrl={async (url) => {
+          await setSshRelayDeviceUrl({ url });
         }}
       />
 
@@ -386,7 +404,7 @@ export function DevicesPage() {
                 <TableHead>Last seen</TableHead>
                 <TableHead>Metrics</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-40 text-right">Actions</TableHead>
+                <TableHead className="w-32 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -396,9 +414,19 @@ export function DevicesPage() {
                 const enabledCount = eps.filter((e) => e.enabled).length;
                 const metric = latestByDevice.get(id);
                 const samples = historyForDevice(metricRows, d.id);
+                const isRelay = relayDevice?.deviceId === d.id;
                 return (
                   <TableRow key={id}>
-                    <TableCell className="font-medium">{d.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{d.name}</span>
+                        {isRelay ? (
+                          <span className="text-[10px] uppercase tracking-wide text-yellow-600 dark:text-yellow-400">
+                            relay
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       {d.hostname ? (
                         <span className="font-mono text-xs">{d.hostname}</span>
@@ -557,25 +585,37 @@ function RegisterDeviceDialog({
 
 function EditDeviceDialog({
   device,
+  isRelay,
+  initialListenUrl,
   onOpenChange,
   onRename,
   onSetHostname,
+  onSetRelay,
+  onSaveListenUrl,
 }: {
   device: DeviceMetadata | null;
+  isRelay: boolean;
+  initialListenUrl: string;
   onOpenChange: (open: boolean) => void;
   onRename: (name: string) => Promise<void>;
   onSetHostname: (hostname: string) => Promise<void>;
+  onSetRelay: (enabled: boolean) => Promise<void>;
+  onSaveListenUrl: (url: string) => Promise<void>;
 }) {
   const [name, setName] = React.useState("");
   const [hostname, setHostname] = React.useState("");
+  const [relayChecked, setRelayChecked] = React.useState(false);
+  const [listenUrl, setListenUrl] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (device) {
       setName(device.name);
       setHostname(device.hostname ?? "");
+      setRelayChecked(isRelay);
+      setListenUrl(initialListenUrl);
     }
-  }, [device]);
+  }, [device, isRelay, initialListenUrl]);
 
   const submit = async () => {
     if (!device) return;
@@ -588,6 +628,12 @@ function EditDeviceDialog({
       const prevHost = device.hostname ?? "";
       if (nextHost !== prevHost) {
         await onSetHostname(nextHost);
+      }
+      if (relayChecked !== isRelay) {
+        await onSetRelay(relayChecked);
+      }
+      if (relayChecked && listenUrl.trim() !== initialListenUrl.trim()) {
+        await onSaveListenUrl(listenUrl.trim());
       }
       onOpenChange(false);
       reportSuccess("Device updated.");
@@ -618,6 +664,34 @@ function EditDeviceDialog({
           </div>
         </div>
         <Separator />
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={relayChecked}
+              onCheckedChange={(v) => setRelayChecked(Boolean(v))}
+            />
+            <span>Use as SSH relay for the browser</span>
+          </label>
+          {relayChecked ? (
+            <div className="space-y-2 pl-6">
+              <Label htmlFor="edit-dev-relay-url" className="text-xs text-muted-foreground">
+                Relay listen URL
+              </Label>
+              <Input
+                id="edit-dev-relay-url"
+                value={listenUrl}
+                onChange={(e) => setListenUrl(e.target.value)}
+                placeholder="ws://laptop.lan:7770"
+                className="font-mono"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                The address the browser can use to reach the relay's service.
+                Use <code className="font-mono">ws://</code> on the same network
+                or <code className="font-mono">wss://</code> with a Tailscale name.
+              </p>
+            </div>
+          ) : null}
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel

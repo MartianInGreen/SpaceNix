@@ -48,6 +48,12 @@ sync/
   caller's permissions and device allow-list.
 - **SSH** (`ssh.rs`) — full keypairs plus endpoint records; both support
   device allow-lists, tags, and enable / disable.
+- **Browser SSH relay** (`ssh.rs`) — the user picks one of their devices
+  as a relay (`ssh_relay_device`); opening an endpoint from the web
+  app mints a `SshRelaySession` row. The TUI service on the relay
+  device attaches a per-session bearer token; the browser opens a
+  WebSocket to the service, presents the token, and the service
+  spawns `ssh(1)` in a pty.
 - **API keys** (`api_key.rs`) — `snx_…` prefixed tokens, hashed at rest, with
   permission scopes and revocation.
 - **S3 config** (`config.rs`) — a single row (id `1`) holding bucket, region,

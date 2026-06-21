@@ -1,5 +1,8 @@
 //! `spacenix ssh …` — manage SSH keys and endpoints.
 
+use std::ffi::OsString;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +24,26 @@ pub enum SshCommand {
     /// Manage SSH endpoints.
     #[command(subcommand)]
     Endpoint(EndpointCommand),
+
+    /// Open an interactive SSH session to a registered endpoint.
+    ///
+    /// The endpoint's stored private key is revealed on demand, written
+    /// to a 0600 tempfile, and handed to the local `ssh(1)` binary. The
+    /// tempfile is removed when the session ends. Any arguments after
+    /// `--` (or all trailing args) are passed to the remote command.
+    Connect(ConnectArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ConnectArgs {
+    /// Endpoint name or numeric id.
+    pub endpoint: String,
+
+    /// Extra arguments forwarded to `ssh(1)`. Use `--` to separate them
+    /// from `spacenix` flags if you need to pass options that start
+    /// with `-` (e.g. `spacenix ssh connect prod -- -L 8080:localhost:80`).
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub ssh_args: Vec<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -130,10 +153,21 @@ pub struct EndpointUpdateArgs {
 }
 
 pub async fn run(config: Arc<Config>, cmd: SshCommand) -> Result<ExitCode> {
-    let state = connect(&config).await?;
     match cmd {
-        SshCommand::Key(cmd) => run_key(&state, cmd).await,
-        SshCommand::Endpoint(cmd) => run_endpoint(&state, cmd).await,
+        SshCommand::Key(cmd) => {
+            let state = connect(&config).await?;
+            run_key(&state, cmd).await
+        }
+        SshCommand::Endpoint(cmd) => {
+            let state = connect(&config).await?;
+            run_endpoint(&state, cmd).await
+        }
+        SshCommand::Connect(args) => {
+            // Connect uses its own subscription set (we don't need
+            // devices for the basic case) and runs a synchronous
+            // process, so it doesn't share `state` with the others.
+            run_connect(&config, args).await
+        }
     }
 }
 
@@ -420,4 +454,169 @@ fn read_stdin() -> String {
     let mut buf = String::new();
     let _ = std::io::stdin().read_to_string(&mut buf);
     buf
+}
+
+async fn run_connect(config: &Config, args: ConnectArgs) -> Result<ExitCode> {
+    let state = connect(config).await?;
+    let ep = resolve_endpoint(&state, &args.endpoint)
+        .with_context(|| format!("resolving endpoint {:?}", args.endpoint))?;
+    if !ep.enabled {
+        anyhow::bail!(
+            "endpoint {:?} is disabled — re-enable it with `spacenix ssh endpoint enabled {} true`",
+            ep.name,
+            ep.id
+        );
+    }
+
+    let key = reveal_key(&state, ep.key_id)
+        .await
+        .with_context(|| format!("revealing ssh key #{} for endpoint {:?}", ep.key_id, ep.name))?
+        .ok_or_else(|| {
+            anyhow::anyhow!("ssh key #{} not visible to this account", ep.key_id)
+        })?;
+
+    let key_path = write_private_key(config, &ep.name, &key.private_key)
+        .context("materializing private key")?;
+    let _cleanup = PrivateKeyGuard::new(key_path.clone());
+
+    let exit = invoke_ssh(&ep, &key_path, &args.ssh_args)
+        .await
+        .context("running ssh(1)")?;
+    Ok(exit)
+}
+
+fn resolve_endpoint(state: &conn::ConnState, target: &str) -> Result<SshEndpointMetadata> {
+    let rows: Vec<SshEndpointMetadata> = state.conn.db().my_ssh_endpoints().iter().collect();
+    if let Ok(id) = target.parse::<u64>() {
+        if let Some(ep) = rows.into_iter().find(|e| e.id == id) {
+            return Ok(ep);
+        }
+        anyhow::bail!("no ssh endpoint with id {id}");
+    }
+    let mut matches = rows.into_iter().filter(|e| e.name == target);
+    let Some(ep) = matches.next() else {
+        anyhow::bail!("no ssh endpoint named {target:?}");
+    };
+    if matches.next().is_some() {
+        anyhow::bail!(
+            "multiple ssh endpoints named {target:?}; pass the numeric id to disambiguate"
+        );
+    }
+    Ok(ep)
+}
+
+async fn reveal_key(
+    state: &conn::ConnState,
+    id: u64,
+) -> Result<Option<module_bindings::SshKeyValue>> {
+    let (tx, rx) = oneshot::channel();
+    state
+        .conn
+        .procedures()
+        .reveal_ssh_key_then(id, move |_ctx, res| {
+            let _ = tx.send(res);
+        });
+    match rx.await.context("reveal_ssh_key callback dropped")? {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(err)) => anyhow::bail!("reveal_ssh_key rejected: {err}"),
+        Err(err) => anyhow::bail!("reveal_ssh_key failed: {err:?}"),
+    }
+}
+
+fn write_private_key(config: &Config, endpoint_name: &str, private_key: &str) -> Result<PathBuf> {
+    use std::io::Write;
+    let dir = config.config_dir.join("ssh-keys");
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("creating {}", dir.display()))?;
+    // Uniquify so concurrent invocations don't stomp each other. The
+    // name is opaque — only spacenix and the spawned ssh ever touch it.
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let safe_name: String = endpoint_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let path = dir.join(format!("{safe_name}-{pid}-{nanos}.key"));
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .with_context(|| format!("creating private key tempfile {}", path.display()))?;
+    file.write_all(private_key.as_bytes())
+        .with_context(|| format!("writing private key to {}", path.display()))?;
+    file.write_all(b"\n")
+        .with_context(|| format!("writing trailing newline to {}", path.display()))?;
+    file.sync_all().ok();
+    Ok(path)
+}
+
+struct PrivateKeyGuard {
+    path: Option<PathBuf>,
+}
+
+impl PrivateKeyGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path: Some(path) }
+    }
+}
+
+impl Drop for PrivateKeyGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            // Best-effort: the key only ever existed for this run.
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+async fn invoke_ssh(ep: &SshEndpointMetadata, key_path: &Path, extra: &[String]) -> Result<ExitCode> {
+    // `-o IdentitiesOnly=yes` keeps the agent / other keys from
+    // shadowing the one we just fetched. `-o StrictHostKeyChecking=accept-new`
+    // is the standard TOFU behaviour: trust the host key on first
+    // use, refuse if it ever changes. We deliberately leave the
+    // user's ssh_config alone for everything else (ProxyJump, etc).
+    let mut args: Vec<OsString> = Vec::with_capacity(10 + extra.len());
+    args.push(OsString::from("-i"));
+    args.push(key_path.as_os_str().to_owned());
+    args.push(OsString::from("-p"));
+    args.push(OsString::from(ep.port.to_string()));
+    args.push(OsString::from("-l"));
+    args.push(OsString::from(ep.username.as_str()));
+    args.push(OsString::from("-o"));
+    args.push(OsString::from("IdentitiesOnly=yes"));
+    args.push(OsString::from("-o"));
+    args.push(OsString::from("StrictHostKeyChecking=accept-new"));
+    args.push(OsString::from(ep.host.as_str()));
+    for a in extra {
+        args.push(OsString::from(a));
+    }
+
+    eprintln!(
+        "→ ssh {}@{}:{} (key #{})",
+        ep.username, ep.host, ep.port, ep.key_id
+    );
+
+    use std::process::Stdio;
+    let status = tokio::process::Command::new("ssh")
+        .args(&args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .await
+        .with_context(|| {
+            format!(
+                "failed to spawn `ssh` — is OpenSSH installed and on PATH? argv={args:?}"
+            )
+        })?;
+
+    Ok(match status.code() {
+        Some(code) if (0..256).contains(&code) => ExitCode::from(code as u8),
+        _ => ExitCode::from(1),
+    })
 }

@@ -276,6 +276,60 @@ export const SshKeyValue = __t.object("SshKeyValue", {
 });
 export type SshKeyValue = __Infer<typeof SshKeyValue>;
 
+export const SshRelayDevice = __t.object("SshRelayDevice", {
+  owner: __t.identity(),
+  deviceId: __t.u64(),
+  updatedAt: __t.timestamp(),
+  listenUrl: __t.option(__t.string()),
+});
+export type SshRelayDevice = __Infer<typeof SshRelayDevice>;
+
+export const SshRelayDeviceMetadata = __t.object("SshRelayDeviceMetadata", {
+  owner: __t.identity(),
+  deviceId: __t.u64(),
+  updatedAt: __t.timestamp(),
+  listenUrl: __t.option(__t.string()),
+});
+export type SshRelayDeviceMetadata = __Infer<typeof SshRelayDeviceMetadata>;
+
+export const SshRelaySession = __t.object("SshRelaySession", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  requesterDeviceId: __t.option(__t.u64()),
+  relayDeviceId: __t.u64(),
+  endpointId: __t.u64(),
+  get status() {
+    return SshRelaySessionStatus;
+  },
+  createdAt: __t.timestamp(),
+  expiresAt: __t.timestamp(),
+  authToken: __t.option(__t.string()),
+});
+export type SshRelaySession = __Infer<typeof SshRelaySession>;
+
+export const SshRelaySessionMetadata = __t.object("SshRelaySessionMetadata", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  requesterDeviceId: __t.option(__t.u64()),
+  relayDeviceId: __t.u64(),
+  endpointId: __t.u64(),
+  get status() {
+    return SshRelaySessionStatus;
+  },
+  createdAt: __t.timestamp(),
+  expiresAt: __t.timestamp(),
+  authToken: __t.option(__t.string()),
+});
+export type SshRelaySessionMetadata = __Infer<typeof SshRelaySessionMetadata>;
+
+// The tagged union or sum type for the algebraic type `SshRelaySessionStatus`.
+export const SshRelaySessionStatus = __t.enum("SshRelaySessionStatus", {
+  Pending: __t.unit(),
+  Active: __t.unit(),
+  Closed: __t.unit(),
+});
+export type SshRelaySessionStatus = __Infer<typeof SshRelaySessionStatus>;
+
 export const UiCommand = __t.object("UiCommand", {
   id: __t.u64(),
   owner: __t.identity(),

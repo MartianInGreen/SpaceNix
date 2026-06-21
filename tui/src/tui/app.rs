@@ -1582,6 +1582,7 @@ impl App {
             Line::from("  spacenix secret list           list secret names"),
             Line::from("  spacenix file list             list files/folders"),
             Line::from("  spacenix ssh key list          list SSH keys"),
+            Line::from("  spacenix ssh connect <name>    ssh into a registered endpoint"),
             Line::from("  spacenix device list           list devices"),
             Line::from("  spacenix service start         run the local HTTP API"),
             Line::from("  spacenix sync add <id>         enable syncing for a file"),

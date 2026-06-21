@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useProcedure, useReducer, useTable } from "spacetimedb/react";
+import { useNavigate } from "react-router-dom";
 import {
   Eye,
   EyeOff,
@@ -14,6 +15,7 @@ import {
   ShieldCheck,
   MonitorSmartphone,
   Network,
+  Play,
 } from "lucide-react";
 
 import { procedures, reducers, tables } from "@/module_bindings";
@@ -73,9 +75,12 @@ function deviceKey(id: bigint | number): string {
 }
 
 export function SshPage() {
+  const navigate = useNavigate();
   const [keyRows, keysReady] = useTable(tables.my_ssh_keys);
   const [endpointRows, endpointsReady] = useTable(tables.my_ssh_endpoints);
   const [devices] = useTable(tables.my_devices);
+  const [relayDeviceRows] = useTable(tables.my_ssh_relay_device);
+  const relayDevice = relayDeviceRows[0];
 
   const setSshKey = useReducer(reducers.setSshKey);
   const setSshKeyValue = useReducer(reducers.setSshKeyValue);
@@ -89,8 +94,39 @@ export function SshPage() {
   const setSshEndpointTags = useReducer(reducers.setSshEndpointTags);
   const setSshEndpointEnabled = useReducer(reducers.setSshEndpointEnabled);
   const deleteSshEndpoint = useReducer(reducers.deleteSshEndpoint);
+  const openSshRelaySession = useReducer(reducers.openSshRelaySession);
 
   const revealProc = useProcedure(procedures.revealSshKey);
+
+  const openTerminal = React.useCallback(
+    async (ep: SshEndpointMetadata) => {
+      if (!relayDevice) {
+        reportError(
+          new Error(
+            "No SSH relay device is set. Pick one on the Devices page first.",
+          ),
+        );
+        return;
+      }
+      try {
+        await openSshRelaySession({
+          relayDeviceId: relayDevice.deviceId,
+          endpointId: ep.id,
+          requesterDeviceId: undefined,
+        });
+        // The terminal page finds the most recent active session
+        // for this endpoint and reads the auth token from the
+        // same row. The token never leaves the browser's STDB
+        // client — it never appears in the URL or the UI.
+        navigate(
+          `/ssh/terminal?endpoint=${encodeURIComponent(String(ep.id))}`,
+        );
+      } catch (err) {
+        reportError(err);
+      }
+    },
+    [relayDevice, openSshRelaySession, navigate],
+  );
 
   const [tab, setTab] = React.useState("keys");
   const [createKeyOpen, setCreateKeyOpen] = React.useState(false);
@@ -184,8 +220,10 @@ export function SshPage() {
             endpoints={endpoints}
             keysById={keysById}
             deviceById={deviceById}
+            relayDeviceId={relayDevice?.deviceId}
             onCreate={() => setCreateEndpointOpen(true)}
             onEdit={setEditingEndpoint}
+            onConnect={openTerminal}
             onToggleEnabled={async (ep, enabled) => {
               try {
                 await setSshEndpointEnabled({ id: ep.id, enabled });
@@ -888,8 +926,10 @@ function EndpointsSection({
   endpoints,
   keysById,
   deviceById,
+  relayDeviceId,
   onCreate,
   onEdit,
+  onConnect,
   onToggleEnabled,
   onDelete,
 }: {
@@ -897,8 +937,10 @@ function EndpointsSection({
   endpoints: SshEndpointMetadata[];
   keysById: Map<string, SshKeyMetadata>;
   deviceById: Map<string, DeviceMetadata>;
+  relayDeviceId: bigint | undefined;
   onCreate: () => void;
   onEdit: (e: SshEndpointMetadata) => void;
+  onConnect: (e: SshEndpointMetadata) => void;
   onToggleEnabled: (e: SshEndpointMetadata, enabled: boolean) => Promise<void>;
   onDelete: (e: SshEndpointMetadata) => Promise<void>;
 }) {
@@ -1004,6 +1046,20 @@ function EndpointsSection({
                 <TableCell className="text-muted-foreground">{formatTimestamp(e.updatedAt)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Open in browser terminal"
+                      title={
+                        relayDeviceId
+                          ? "Open in browser terminal"
+                          : "Pick a relay device on the Devices page first"
+                      }
+                      disabled={!e.enabled || !relayDeviceId}
+                      onClick={() => onConnect(e)}
+                    >
+                      <Play className="size-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => onEdit(e)}>
                       <Pencil className="size-4" />
                     </Button>

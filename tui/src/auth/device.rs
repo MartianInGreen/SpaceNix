@@ -1,6 +1,8 @@
 //! Resolve which registered SpaceNix device represents this machine.
 
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -255,7 +257,7 @@ async fn maybe_create_ssh_endpoint(state: &ConnState, device: &DeviceCandidate) 
         .db()
         .my_ssh_keys()
         .iter()
-        .map(|k| (k.id, k.name.clone()))
+        .map(|k| (k.id, k.name.clone(), k.public_key.clone()))
         .collect();
     keys.sort_by(|a, b| a.1.cmp(&b.1));
 
@@ -265,7 +267,7 @@ async fn maybe_create_ssh_endpoint(state: &ConnState, device: &DeviceCandidate) 
         println!("  (no SSH keys are stored yet — skipping)");
         return Ok(());
     }
-    for (idx, (id, name)) in keys.iter().enumerate() {
+    for (idx, (id, name, _)) in keys.iter().enumerate() {
         println!("  {}. #{} {}", idx + 1, id, name);
     }
     println!("  s. skip");
@@ -276,7 +278,7 @@ async fn maybe_create_ssh_endpoint(state: &ConnState, device: &DeviceCandidate) 
     let index: usize = answer
         .parse()
         .context("ssh key selection must be a number or s")?;
-    let Some((key_id, _)) = keys.get(index.saturating_sub(1)) else {
+    let Some((key_id, _key_name, public_key)) = keys.get(index.saturating_sub(1)) else {
         anyhow::bail!("ssh key selection out of range");
     };
 
@@ -310,6 +312,84 @@ async fn maybe_create_ssh_endpoint(state: &ConnState, device: &DeviceCandidate) 
 
     create_ssh_endpoint(state, name, host, port, username, *key_id, device.id).await?;
     println!("✓ ssh endpoint created");
+
+    maybe_install_authorized_key(public_key)?;
+    Ok(())
+}
+
+fn maybe_install_authorized_key(public_key: &str) -> Result<()> {
+    let path = default_authorized_keys_path()
+        .context("locating ~/.ssh/authorized_keys")?;
+    println!();
+    let answer = prompt_line(&format!(
+        "Add the selected key's public key to {} on this device? [y/N]: ",
+        path.display()
+    ))?;
+    if !answer.eq_ignore_ascii_case("y") {
+        return Ok(());
+    }
+    append_authorized_key(&path, public_key)
+        .with_context(|| format!("appending to {}", path.display()))?;
+    println!("✓ added public key to {}", path.display());
+    Ok(())
+}
+
+fn default_authorized_keys_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir())?;
+    Some(home.join(".ssh").join("authorized_keys"))
+}
+
+fn append_authorized_key(path: &Path, public_key: &str) -> Result<()> {
+    let trimmed = public_key.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("public key is empty");
+    }
+
+    if let Some(existing) = std::fs::read_to_string(path).ok() {
+        for line in existing.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if line == trimmed {
+                println!("(public key already present, skipping)");
+                return Ok(());
+            }
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(parent) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o700);
+                let _ = std::fs::set_permissions(parent, perms);
+            }
+        }
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("opening {} for append", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = file.metadata() {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o600);
+            let _ = file.set_permissions(perms);
+        }
+    }
+    writeln!(file, "{trimmed} spacenix")?;
     Ok(())
 }
 

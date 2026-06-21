@@ -22,6 +22,12 @@ pub enum ServiceCommand {
         #[arg(long)]
         port: Option<u16>,
 
+        /// Address to bind to. `127.0.0.1` by default; set to `0.0.0.0`
+        /// to expose the service on the LAN (e.g. for Tailscale /
+        /// direct browser access from another device).
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+
         /// Run in the foreground (do not detach). Useful for debugging and
         /// for running under supervisors like `systemd` or `tmux`.
         #[arg(long, short = 'f')]
@@ -44,7 +50,7 @@ pub fn run(config: Arc<Config>, cmd: ServiceCommand) -> Result<ExitCode> {
         // runtime to drive the service. We can't build one inline
         // because we're already inside `block_on` of a multi-thread
         // runtime — so we hop to a fresh OS thread first.
-        ServiceCommand::Start { port, foreground: _ } => {
+        ServiceCommand::Start { port, foreground: _, bind } => {
             std::thread::Builder::new()
                 .name("spacenix-svc".into())
                 .spawn(move || -> Result<ExitCode> {
@@ -57,7 +63,7 @@ pub fn run(config: Arc<Config>, cmd: ServiceCommand) -> Result<ExitCode> {
                         .enable_all()
                         .build()
                         .context("building tokio runtime")?;
-                    rt.block_on(run_service(config, port))
+                    rt.block_on(run_service(config, port, Some(bind)))
                 })
                 .expect("spawning service thread")
                 .join()
@@ -68,13 +74,18 @@ pub fn run(config: Arc<Config>, cmd: ServiceCommand) -> Result<ExitCode> {
     }
 }
 
-pub async fn run_service(config: Arc<Config>, port: Option<u16>) -> Result<ExitCode> {
+pub async fn run_service(
+    config: Arc<Config>,
+    port: Option<u16>,
+    bind: Option<String>,
+) -> Result<ExitCode> {
     let lock_path = config.service_lock_file();
-    let bind = port.unwrap_or(0);
+    let port = port.unwrap_or(0);
+    let bind = bind.unwrap_or_else(|| "127.0.0.1".to_string());
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", bind))
+    let listener = tokio::net::TcpListener::bind((bind.as_str(), port))
         .await
-        .context("binding service listener")?;
+        .with_context(|| format!("binding service listener to {bind}:{port}"))?;
     let bound_port = listener.local_addr()?.port();
     let pid = std::process::id();
 
@@ -85,7 +96,7 @@ pub async fn run_service(config: Arc<Config>, port: Option<u16>) -> Result<ExitC
     };
     lock.save(&lock_path).context("writing service lock")?;
 
-    println!("spacenix service listening on http://127.0.0.1:{bound_port}");
+    println!("spacenix service listening on http://{bind}:{bound_port}");
     println!("pid: {pid}");
 
     // Best-effort STDB connection. The service can run in a degraded state if
@@ -112,6 +123,7 @@ pub async fn run_service(config: Arc<Config>, port: Option<u16>) -> Result<ExitC
     let server = axum::serve(listener, app);
 
     let (metrics_cancel_tx, metrics_cancel_rx) = tokio::sync::oneshot::channel();
+    let (relay_cancel_tx, relay_cancel_rx) = tokio::sync::oneshot::channel();
     let metrics_handle = match state.as_ref() {
         Some(state) => match crate::store::device::LocalDevice::load(&config.device_file()) {
             Ok(Some(local)) => {
@@ -141,6 +153,22 @@ pub async fn run_service(config: Arc<Config>, port: Option<u16>) -> Result<ExitC
         None => None,
     };
 
+    // SSH relay loop: only meaningful when the service has both a
+    // SpacetimeDB connection and a local device selection. It is a
+    // no-op otherwise (the loop just waits).
+    let relay_handle = match state.as_ref() {
+        Some(state) => match crate::store::device::LocalDevice::load(&config.device_file()) {
+            Ok(Some(local)) => Some(crate::relay::spawn(
+                Arc::clone(&config),
+                Arc::clone(state),
+                local,
+                relay_cancel_rx,
+            )),
+            Ok(None) | Err(_) => None,
+        },
+        None => None,
+    };
+
     let shutdown = async {
         if let Ok(()) = signal::ctrl_c().await {
             tracing::info!("ctrl-c received; shutting down service");
@@ -153,6 +181,10 @@ pub async fn run_service(config: Arc<Config>, port: Option<u16>) -> Result<ExitC
 
     if let Some(handle) = metrics_handle {
         let _ = metrics_cancel_tx.send(());
+        let _ = handle.await;
+    }
+    if let Some(handle) = relay_handle {
+        let _ = relay_cancel_tx.send(());
         let _ = handle.await;
     }
 

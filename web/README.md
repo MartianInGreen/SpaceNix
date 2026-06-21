@@ -84,6 +84,37 @@ VITE_STDB_MODULE=spacenix
 
 See `src/lib/stdb.ts:5` for the full default-resolution logic.
 
+## Browser SSH terminal
+
+The SSH page (`/ssh`) has a "play" button on each enabled endpoint
+that opens an interactive terminal in the browser, driven by `xterm.js`.
+The browser speaks WebSocket to one of the user's devices running
+`spacenix service start --bind 0.0.0.0` (the "relay device"), and
+the relay device spawns `ssh(1)` in a pty and bridges the bytes.
+
+To set it up:
+
+1. On the device that should run SSH (`spacenix login` first), start
+   the service on a non-loopback address:
+   ```bash
+   spacenix service start --bind 0.0.0.0 --port 7770
+   ```
+   (Use `wss://` and a Tailscale address if the browser is on a
+   different network. The same network + plain `ws://` also works.)
+2. On the Devices page, click the star (☆) on that device's row to
+   mark it as the SSH relay. The same row expands to show a
+   "Relay URL" input — enter the address the browser can use to
+   reach the service, e.g. `ws://laptop.lan:7770` or
+   `wss://my-laptop.tail-net.ts.net:7770`, and click Save.
+3. On the SSH page, click the play button on any enabled endpoint.
+
+The per-session auth token is minted by the relay device and read
+by the browser from the SpacetimeDB subscription — it never appears
+in the URL, in localStorage, or in the UI. The SSH private key is
+fetched from the database by the relay device, written to a 0600
+tempfile, and removed when the session ends. The browser never sees
+the key — it only sees the encrypted WebSocket stream.
+
 ## Build / preview / typecheck / lint
 
 ```bash

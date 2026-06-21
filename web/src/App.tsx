@@ -22,6 +22,7 @@ import { LoginPage } from "@/pages/login";
 import { FilesPage } from "@/pages/files";
 import { SecretsPage } from "@/pages/secrets";
 import { SshPage } from "@/pages/ssh";
+import { TerminalPage } from "@/pages/terminal";
 import { PatsPage } from "@/pages/pats";
 import { DevicesPage } from "@/pages/devices";
 import { AccountPage } from "@/pages/account";
@@ -157,6 +158,7 @@ function Router() {
         <Route path="files" element={<FilesPage />} />
         <Route path="secrets" element={<SecretsPage />} />
         <Route path="ssh" element={<SshPage />} />
+        <Route path="ssh/terminal" element={<TerminalPage />} />
         <Route path="pats" element={<PatsPage />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="account" element={<AccountPage />} />
