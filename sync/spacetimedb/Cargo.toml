@@ -13,7 +13,5 @@ spacetimedb = { version = "2.4.1", features = ["unstable"] }
 log = "0.4"
 blake3 = "1"
 argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
-aws-sdk-s3 = { version = "1.136", default-features = false, features = ["behavior-version-latest"] }
-aws-types = "1"
-aws-credential-types = "1"
-futures-lite = "2"
+sha2 = "0.10"
+hmac = "0.12"

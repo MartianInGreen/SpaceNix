@@ -1,9 +1,5 @@
-use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
-use aws_sdk_s3::{
-    Client,
-    config::{BehaviorVersion, Region},
-    presigning::PresigningConfig,
-};
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
 use spacetimedb::{
     Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, procedure,
     rand::RngCore, view,
@@ -13,9 +9,10 @@ use std::time::Duration;
 use crate::config::s3_config as _;
 use crate::user::{require_registered_user, session as _, session__view as _};
 
+type HmacSha256 = Hmac<Sha256>;
+
 const UPLOAD_URL_TTL_SECS: u64 = 900;
 const DOWNLOAD_URL_TTL_SECS: u64 = 300;
-const INLINE_CONTENT_MAX_BYTES: usize = 256 * 1024;
 
 #[spacetimedb::table(accessor = user_file, public)]
 pub struct UserFile {
@@ -26,11 +23,17 @@ pub struct UserFile {
     pub owner: Identity,
     #[index(btree)]
     pub name: String,
-    pub path: Option<String>,
+    /// Virtual SpaceNix path used to nest this row inside folders in the
+    /// tree view. Relative segments joined with `/`; `None` or `""` means
+    /// the row lives at the root of the user's tree.
+    pub tree_path: Option<String>,
+    /// Absolute path on the local filesystem that this row (or its parent
+    /// folder, for files inside) syncs to. `None` means the sync agent has
+    /// not been told a destination yet.
+    pub local_path: Option<String>,
     pub hash: String,
     pub size_bytes: u64,
     pub content_type: Option<String>,
-    pub inline_content: Option<String>,
     pub is_directory: bool,
     pub s3_key: String,
     pub created_at: Timestamp,
@@ -41,11 +44,11 @@ pub struct UserFile {
 pub struct FileMetadata {
     pub id: u64,
     pub name: String,
-    pub path: Option<String>,
+    pub tree_path: Option<String>,
+    pub local_path: Option<String>,
     pub hash: String,
     pub size_bytes: u64,
     pub content_type: Option<String>,
-    pub inline_content: Option<String>,
     pub is_directory: bool,
     pub s3_key: String,
     pub created_at: Timestamp,
@@ -57,11 +60,11 @@ impl From<UserFile> for FileMetadata {
         Self {
             id: f.id,
             name: f.name,
-            path: f.path,
+            tree_path: f.tree_path,
+            local_path: f.local_path,
             hash: f.hash,
             size_bytes: f.size_bytes,
             content_type: f.content_type,
-            inline_content: f.inline_content,
             is_directory: f.is_directory,
             s3_key: f.s3_key,
             created_at: f.created_at,
@@ -124,7 +127,30 @@ fn validate_file_name(name: String) -> Result<String, String> {
     Ok(name)
 }
 
-fn validate_file_path(path: Option<String>) -> Result<Option<String>, String> {
+fn validate_tree_path(path: Option<String>) -> Result<Option<String>, String> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let path = path.trim().trim_end_matches('/').to_string();
+    if path.is_empty() {
+        return Ok(None);
+    }
+    if path.len() > 1024 {
+        return Err("tree path must be 1024 characters or fewer".to_string());
+    }
+    if path.starts_with('/') {
+        return Err("tree path must be relative (no leading slash)".to_string());
+    }
+    if path.chars().any(|c| c == '\0' || c.is_control()) {
+        return Err("tree path cannot contain control characters".to_string());
+    }
+    Ok(Some(path))
+}
+
+/// Validates a `local_path`: the absolute path on the user's local
+/// filesystem that a row (or its containing folder) syncs to. `None` or
+/// empty means the sync agent has not been told a destination yet.
+fn validate_local_path(path: Option<String>) -> Result<Option<String>, String> {
     let Some(path) = path else {
         return Ok(None);
     };
@@ -132,11 +158,14 @@ fn validate_file_path(path: Option<String>) -> Result<Option<String>, String> {
     if path.is_empty() {
         return Ok(None);
     }
-    if path.len() > 1024 {
-        return Err("path must be 1024 characters or fewer".to_string());
+    if path.len() > 4096 {
+        return Err("local path must be 4096 characters or fewer".to_string());
+    }
+    if !path.starts_with('/') {
+        return Err("local path must be absolute (start with '/')".to_string());
     }
     if path.chars().any(|c| c == '\0' || c.is_control()) {
-        return Err("path cannot contain control characters".to_string());
+        return Err("local path cannot contain control characters".to_string());
     }
     Ok(Some(path))
 }
@@ -154,7 +183,133 @@ fn path_conflict(
         .user_file()
         .owner()
         .filter(owner)
-        .any(|f| f.path.as_deref() == Some(path) && Some(f.id) != except_id)
+        .any(|f| f.tree_path.as_deref() == Some(path) && Some(f.id) != except_id)
+}
+
+/// Returns true if `prefix` is a path prefix of `path` (i.e. `path == prefix`
+/// or `path` starts with `prefix + "/"`). Used to detect a folder being moved
+/// into its own subtree.
+fn has_path_prefix(path: &str, prefix: &str) -> bool {
+    path == prefix || path.starts_with(&format!("{prefix}/"))
+}
+
+/// Detects moves that would create a containment conflict — i.e. moving a
+/// folder `old_path` to `new_path` where `new_path` is already inside
+/// `old_path`. Returns `Err` with a user-facing message in that case.
+fn check_move_containment(
+    ctx: &ReducerContext,
+    owner: Identity,
+    file_id: u64,
+    old_path: Option<&str>,
+    new_path: Option<&str>,
+) -> Result<(), String> {
+    let (Some(old), Some(new)) = (old_path, new_path) else {
+        return Ok(());
+    };
+    if old == new {
+        return Ok(());
+    }
+    if has_path_prefix(new, old) {
+        return Err("cannot move a folder into itself".to_string());
+    }
+    // If the moved row is a directory, every row currently at a path that is
+    // a descendant of `old` will be rewritten to live under `new`. None of
+    // those descendants can already be at `new` (or under it) in a way that
+    // would collide after the rewrite.
+    let moved = ctx
+        .db
+        .user_file()
+        .id()
+        .find(file_id)
+        .ok_or_else(|| "file not found".to_string())?;
+    if !moved.is_directory {
+        return Ok(());
+    }
+    let old_prefix = format!("{old}/");
+    let new_prefix = format!("{new}/");
+    for descendant in ctx
+        .db
+        .user_file()
+        .owner()
+        .filter(owner)
+        .filter(|f| Some(f.id) != Some(file_id))
+    {
+        let Some(child_path) = descendant.tree_path.as_deref() else {
+            continue;
+        };
+        if !child_path.starts_with(&old_prefix) {
+            continue;
+        }
+        // The descendant's new path will be `new/<rest>`.
+        let rewritten = format!("{new}{}", &child_path[old.len()..]);
+        if has_path_prefix(&rewritten, &new_prefix) {
+            // Only possible if `new` is itself under the descendant — covered
+            // by the earlier `has_path_prefix(new, old)` check, but keep
+            // for safety.
+            return Err("cannot move a folder into itself".to_string());
+        }
+        if path_conflict(ctx, owner, &Some(rewritten.clone()), Some(descendant.id)) {
+            return Err("a file or folder already uses this path".to_string());
+        }
+    }
+    Ok(())
+}
+
+/// Rewrites the `path` of every descendant of `old_prefix` (the directory
+/// being moved) to its new location under `new_prefix`. Returns the number of
+/// rows updated.
+fn rewrite_descendant_paths(
+    ctx: &ReducerContext,
+    owner: Identity,
+    old_prefix: &str,
+    new_prefix: &str,
+) -> usize {
+    let old_with_slash = format!("{old_prefix}/");
+    let mut updated = 0;
+    for row in ctx.db.user_file().owner().filter(owner) {
+        let Some(child_path) = row.tree_path.as_deref() else {
+            continue;
+        };
+        if !child_path.starts_with(&old_with_slash) {
+            continue;
+        }
+        let suffix = &child_path[old_prefix.len()..];
+        let new_path = format!("{new_prefix}{suffix}");
+        let mut next = row;
+        next.tree_path = Some(new_path);
+        next.updated_at = ctx.timestamp;
+        ctx.db.user_file().id().update(next);
+        updated += 1;
+    }
+    updated
+}
+
+/// Deletes every descendant of `prefix` (rows whose `path` starts with
+/// `prefix + "/"`). Does not touch the row at `prefix` itself. Returns the
+/// number of rows deleted.
+fn delete_descendants(
+    ctx: &ReducerContext,
+    owner: Identity,
+    prefix: &str,
+) -> usize {
+    let with_slash = format!("{prefix}/");
+    let to_delete: Vec<u64> = ctx
+        .db
+        .user_file()
+        .owner()
+        .filter(owner)
+        .filter(|f| {
+            f.tree_path
+                .as_deref()
+                .is_some_and(|p| p.starts_with(&with_slash))
+        })
+        .map(|f| f.id)
+        .collect();
+    let n = to_delete.len();
+    for id in to_delete {
+        ctx.db.user_file().id().delete(id);
+    }
+    n
 }
 
 fn s3_key_for(ctx: &ReducerContext, owner: Identity, name: &str) -> String {
@@ -181,21 +336,23 @@ fn s3_key_for(ctx: &ReducerContext, owner: Identity, name: &str) -> String {
 pub fn register_file(
     ctx: &ReducerContext,
     name: String,
-    path: Option<String>,
+    tree_path: Option<String>,
+    local_path: Option<String>,
     hash: String,
     size_bytes: u64,
     content_type: Option<String>,
 ) -> Result<(), String> {
     let user = require_registered_user(ctx)?;
     let name = validate_file_name(name)?;
-    let path = validate_file_path(path)?;
+    let tree_path = validate_tree_path(tree_path)?;
+    let local_path = validate_local_path(local_path)?;
     if hash.is_empty() {
         return Err("hash cannot be empty".to_string());
     }
     load_s3_config(ctx)?;
 
     let owner = user.identity;
-    if path_conflict(ctx, owner, &path, None) {
+    if path_conflict(ctx, owner, &tree_path, None) {
         return Err("a file or folder already uses this path".to_string());
     }
     let s3_key = s3_key_for(ctx, owner, &name);
@@ -203,11 +360,11 @@ pub fn register_file(
         id: 0,
         owner,
         name,
-        path,
+        tree_path,
+        local_path,
         hash,
         size_bytes,
         content_type,
-        inline_content: None,
         is_directory: false,
         s3_key,
         created_at: ctx.timestamp,
@@ -220,106 +377,31 @@ pub fn register_file(
 pub fn create_folder(
     ctx: &ReducerContext,
     name: String,
-    path: Option<String>,
+    tree_path: Option<String>,
+    local_path: Option<String>,
 ) -> Result<(), String> {
     let user = require_registered_user(ctx)?;
     let name = validate_file_name(name)?;
-    let path = validate_file_path(path)?;
+    let tree_path = validate_tree_path(tree_path)?;
+    let local_path = validate_local_path(local_path)?;
     let owner = user.identity;
-    if path_conflict(ctx, owner, &path, None) {
+    if path_conflict(ctx, owner, &tree_path, None) {
         return Err("a file or folder already uses this path".to_string());
     }
     ctx.db.user_file().insert(UserFile {
         id: 0,
         owner,
         name,
-        path,
+        tree_path,
+        local_path,
         hash: String::new(),
         size_bytes: 0,
         content_type: None,
-        inline_content: None,
         is_directory: true,
         s3_key: String::new(),
         created_at: ctx.timestamp,
         updated_at: ctx.timestamp,
     });
-    Ok(())
-}
-
-#[spacetimedb::reducer]
-pub fn set_file_content(
-    ctx: &ReducerContext,
-    file_id: Option<u64>,
-    name: String,
-    path: Option<String>,
-    content: String,
-    content_type: Option<String>,
-) -> Result<(), String> {
-    let user = require_registered_user(ctx)?;
-    let name = validate_file_name(name)?;
-    let path = validate_file_path(path)?;
-    if content.len() > INLINE_CONTENT_MAX_BYTES {
-        return Err("file content too large (max 256 KiB)".to_string());
-    }
-
-    let owner = user.identity;
-    let existing = if let Some(id) = file_id {
-        Some(
-            ctx.db
-                .user_file()
-                .id()
-                .find(id)
-                .ok_or_else(|| "file not found".to_string())?,
-        )
-    } else if let Some(target_path) = path.as_deref() {
-        ctx.db
-            .user_file()
-            .owner()
-            .filter(owner)
-            .find(|f| f.path.as_deref() == Some(target_path))
-    } else {
-        None
-    };
-
-    let hash = format!("blake3:{}", blake3::hash(content.as_bytes()).to_hex());
-    let size_bytes = content.len() as u64;
-    if let Some(mut file) = existing {
-        if file.owner != owner {
-            return Err("not your file".to_string());
-        }
-        if file.is_directory {
-            return Err("folders cannot have file content".to_string());
-        }
-        if path_conflict(ctx, owner, &path, Some(file.id)) {
-            return Err("a file or folder already uses this path".to_string());
-        }
-        file.name = name;
-        file.path = path;
-        file.hash = hash;
-        file.size_bytes = size_bytes;
-        file.content_type = content_type;
-        file.inline_content = Some(content);
-        file.updated_at = ctx.timestamp;
-        ctx.db.user_file().id().update(file);
-    } else {
-        if path_conflict(ctx, owner, &path, None) {
-            return Err("a file or folder already uses this path".to_string());
-        }
-        ctx.db.user_file().insert(UserFile {
-            id: 0,
-            owner,
-            name,
-            path,
-            hash,
-            size_bytes,
-            content_type,
-            inline_content: Some(content),
-            is_directory: false,
-            s3_key: String::new(),
-            created_at: ctx.timestamp,
-            updated_at: ctx.timestamp,
-        });
-    }
     Ok(())
 }
 
@@ -335,7 +417,19 @@ pub fn delete_file(ctx: &ReducerContext, file_id: u64) -> Result<(), String> {
     if file.owner != user.identity {
         return Err("not your file".to_string());
     }
+    // Cascade: if the row is a directory, remove every descendant as well so
+    // the tree never ends up with ghost children pointing at a missing
+    // parent. The descendant rows are looked up by `tree_path` prefix after
+    // removing the directory itself, so the deletion is symmetric and order
+    // does not matter.
+    let owner = user.identity;
+    let prefix = file.tree_path.clone();
     ctx.db.user_file().id().delete(file_id);
+    if file.is_directory {
+        if let Some(p) = prefix.as_deref() {
+            delete_descendants(ctx, owner, p);
+        }
+    }
     Ok(())
 }
 
@@ -364,7 +458,6 @@ pub fn finalize_upload(
     }
     file.hash = hash;
     file.size_bytes = size_bytes;
-    file.inline_content = None;
     file.updated_at = ctx.timestamp;
     ctx.db.user_file().id().update(file);
     Ok(())
@@ -375,7 +468,8 @@ pub fn rename_file(
     ctx: &ReducerContext,
     file_id: u64,
     name: String,
-    path: Option<String>,
+    tree_path: Option<String>,
+    local_path: Option<String>,
 ) -> Result<(), String> {
     let user = require_registered_user(ctx)?;
     let mut file = ctx
@@ -388,14 +482,38 @@ pub fn rename_file(
         return Err("not your file".to_string());
     }
     let name = validate_file_name(name)?;
-    let path = validate_file_path(path)?;
-    if path_conflict(ctx, user.identity, &path, Some(file_id)) {
+    let tree_path = validate_tree_path(tree_path)?;
+    let local_path = validate_local_path(local_path)?;
+    if path_conflict(ctx, user.identity, &tree_path, Some(file_id)) {
         return Err("a file or folder already uses this path".to_string());
     }
+    // Reject moving a folder into itself or any of its descendants, and
+    // verify that no descendant, once rewritten, would collide with an
+    // existing row. This prevents the "ghost folder" pattern that arises
+    // when descendants are left at their old paths after a folder move.
+    if file.is_directory {
+        check_move_containment(
+            ctx,
+            user.identity,
+            file_id,
+            file.tree_path.as_deref(),
+            tree_path.as_deref(),
+        )?;
+    }
+    let is_directory = file.is_directory;
+    let old_path = file.tree_path.clone();
     file.name = name;
-    file.path = path;
+    file.tree_path = tree_path.clone();
+    file.local_path = local_path;
     file.updated_at = ctx.timestamp;
     ctx.db.user_file().id().update(file);
+    if is_directory {
+        if let (Some(old), Some(new)) = (old_path.as_deref(), tree_path.as_deref()) {
+            if old != new {
+                rewrite_descendant_paths(ctx, user.identity, old, new);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -412,24 +530,165 @@ fn my_files(ctx: &ViewContext) -> Vec<FileMetadata> {
         .collect()
 }
 
-fn build_s3_client(cfg: &crate::config::S3Config) -> Result<Client, String> {
-    let creds = Credentials::new(
-        cfg.access_key_id.clone(),
-        cfg.secret_access_key.clone(),
-        None,
-        None,
-        "spacenix-static",
+fn presign_url(
+    method: &str,
+    cfg: &crate::config::S3Config,
+    key: &str,
+    _content_type: Option<&str>,
+    expires_in: Duration,
+    now_micros: i64,
+) -> Result<String, String> {
+    let (date_stamp, amz_date) = format_amz_date(now_micros);
+
+    let (scheme, host, path_prefix) = match cfg.endpoint.as_deref() {
+        Some(ep) if !ep.is_empty() => {
+            let (scheme, rest) = ep
+                .strip_prefix("https://")
+                .map(|r| ("https", r))
+                .or_else(|| ep.strip_prefix("http://").map(|r| ("http", r)))
+                .unwrap_or(("https", ep));
+            (
+                scheme.to_string(),
+                rest.trim_end_matches('/').to_string(),
+                format!("/{}", cfg.bucket),
+            )
+        }
+        _ => {
+            let host = format!("{}.s3.{}.amazonaws.com", cfg.bucket, cfg.region);
+            ("https".to_string(), host, String::new())
+        }
+    };
+
+    let canonical_uri = if path_prefix.is_empty() {
+        format!("/{}", uri_encode(key, false))
+    } else {
+        format!("{}/{}", path_prefix, uri_encode(key, false))
+    };
+
+    let canonical_headers = format!("host:{}\n", host);
+    let signed_headers = "host";
+
+    let credential = format!(
+        "{}/{}/{}/s3/aws4_request",
+        cfg.access_key_id, date_stamp, cfg.region
     );
-    let mut builder = aws_sdk_s3::Config::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(Region::new(cfg.region.clone()))
-        .credentials_provider(SharedCredentialsProvider::new(creds));
-    if let Some(ep) = cfg.endpoint.as_deref() {
-        if !ep.is_empty() {
-            builder = builder.endpoint_url(ep);
+    let expires_secs = expires_in.as_secs().to_string();
+
+    let mut query_pairs: Vec<(String, String)> = vec![
+        ("X-Amz-Algorithm".to_string(), "AWS4-HMAC-SHA256".to_string()),
+        ("X-Amz-Credential".to_string(), credential),
+        ("X-Amz-Date".to_string(), amz_date.clone()),
+        ("X-Amz-Expires".to_string(), expires_secs),
+        ("X-Amz-SignedHeaders".to_string(), signed_headers.to_string()),
+    ];
+    query_pairs.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let canonical_query_string = query_pairs
+        .iter()
+        .map(|(k, v)| format!("{}={}", uri_encode(k, true), uri_encode(v, true)))
+        .collect::<Vec<_>>()
+        .join("&");
+
+    let canonical_request = format!(
+        "{}\n{}\n{}\n{}\n{}\nUNSIGNED-PAYLOAD",
+        method,
+        canonical_uri,
+        canonical_query_string,
+        canonical_headers,
+        signed_headers
+    );
+
+    let hashed_canonical = sha256_hex(canonical_request.as_bytes());
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{}\n{}/{}/s3/aws4_request\n{}",
+        amz_date, date_stamp, cfg.region, hashed_canonical
+    );
+
+    let signing_key = derive_signing_key(&cfg.secret_access_key, &date_stamp, &cfg.region);
+    let signature_bytes = hmac_sha256(&signing_key, string_to_sign.as_bytes());
+    let signature_hex: String = signature_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
+
+    Ok(format!(
+        "{}://{}{}?{}&X-Amz-Signature={}",
+        scheme, host, canonical_uri, canonical_query_string, signature_hex
+    ))
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn derive_signing_key(secret: &str, date_stamp: &str, region: &str) -> Vec<u8> {
+    let k_date = hmac_sha256(format!("AWS4{}", secret).as_bytes(), date_stamp.as_bytes());
+    let k_region = hmac_sha256(&k_date, region.as_bytes());
+    let k_service = hmac_sha256(&k_region, b"s3");
+    hmac_sha256(&k_service, b"aws4_request")
+}
+
+fn uri_encode(s: &str, encode_slash: bool) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b'/' if !encode_slash => out.push('/'),
+            _ => {
+                out.push('%');
+                out.push(hex_digit(b >> 4));
+                out.push(hex_digit(b & 0x0f));
+            }
         }
     }
-    Ok(Client::from_conf(builder.build()))
+    out
+}
+
+fn hex_digit(n: u8) -> char {
+    match n {
+        0..=9 => (b'0' + n) as char,
+        10..=15 => (b'A' + n - 10) as char,
+        _ => unreachable!(),
+    }
+}
+
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
+}
+
+fn format_amz_date(micros: i64) -> (String, String) {
+    let secs = micros / 1_000_000;
+    let days = secs.div_euclid(86400);
+    let tod = secs.rem_euclid(86400);
+    let (y, m, d) = civil_from_days(days);
+    let h = tod / 3600;
+    let min = (tod % 3600) / 60;
+    let s = tod % 60;
+    let date_stamp = format!("{:04}{:02}{:02}", y, m, d);
+    let amz_date = format!(
+        "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
+        y, m, d, h, min, s
+    );
+    (date_stamp, amz_date)
 }
 
 #[procedure]
@@ -478,7 +737,10 @@ pub fn search_files(
             .filter(user)
             .filter(|f| {
                 f.name.to_lowercase().contains(&q)
-                    || f.path
+                    || f.tree_path
+                        .as_deref()
+                        .is_some_and(|path| path.to_lowercase().contains(&q))
+                    || f.local_path
                         .as_deref()
                         .is_some_and(|path| path.to_lowercase().contains(&q))
             })
@@ -491,11 +753,13 @@ pub fn search_files(
 pub fn request_upload_url(
     ctx: &mut spacetimedb::ProcedureContext,
     name: String,
-    path: Option<String>,
+    tree_path: Option<String>,
+    local_path: Option<String>,
     content_type: Option<String>,
 ) -> Result<UploadTicket, String> {
     let name = validate_file_name(name)?;
-    let path = validate_file_path(path)?;
+    let tree_path = validate_tree_path(tree_path)?;
+    let local_path = validate_local_path(local_path)?;
 
     let sender = ctx.sender();
     let nonce: u32 = ctx.rng().next_u32();
@@ -511,13 +775,13 @@ pub fn request_upload_url(
                 .find(sender)
                 .map(|s| s.user)
                 .ok_or_else(|| "sign in first".to_string())?;
-            if let Some(target_path) = path.as_deref() {
+            if let Some(target_path) = tree_path.as_deref() {
                 if tx
                     .db
                     .user_file()
                     .owner()
                     .filter(user)
-                    .any(|f| f.path.as_deref() == Some(target_path))
+                    .any(|f| f.tree_path.as_deref() == Some(target_path))
                 {
                     return Err("a file or folder already uses this path".to_string());
                 }
@@ -549,11 +813,11 @@ pub fn request_upload_url(
                 id: 0,
                 owner: user,
                 name: name.clone(),
-                path: path.clone(),
+                tree_path: tree_path.clone(),
+                local_path: local_path.clone(),
                 hash: String::new(),
                 size_bytes: 0,
                 content_type: content_type.clone(),
-                inline_content: None,
                 is_directory: false,
                 s3_key: s3_key.clone(),
                 created_at: timestamp,
@@ -565,20 +829,18 @@ pub fn request_upload_url(
 
     let (cfg, file_id, s3_key, ct) = prepared;
 
-    let client = build_s3_client(&cfg)?;
-
-    let presign = PresigningConfig::expires_in(Duration::from_secs(UPLOAD_URL_TTL_SECS))
-        .map_err(|e| format!("presign config: {e}"))?;
-    let mut req = client.put_object().bucket(cfg.bucket).key(s3_key.clone());
-    if let Some(c) = ct.as_deref() {
-        req = req.content_type(c);
-    }
-    let presigned = futures_lite::future::block_on(req.presigned(presign))
-        .map_err(|e| format!("presign: {e}"))?;
+    let upload_url = presign_url(
+        "PUT",
+        &cfg,
+        &s3_key,
+        ct.as_deref(),
+        Duration::from_secs(UPLOAD_URL_TTL_SECS),
+        ctx.timestamp.to_micros_since_unix_epoch(),
+    )?;
 
     Ok(UploadTicket {
         file_id,
-        upload_url: presigned.uri().to_string(),
+        upload_url,
         s3_key,
     })
 }
@@ -590,7 +852,7 @@ pub fn request_download_url(
 ) -> Result<String, String> {
     let sender = ctx.sender();
     let lookup = ctx.try_with_tx(
-        |tx| -> Result<Option<(String, String, bool, bool)>, String> {
+        |tx| -> Result<Option<(String, String, bool)>, String> {
             let user = tx
                 .db
                 .session()
@@ -604,16 +866,13 @@ pub fn request_download_url(
                 .id()
                 .find(file_id)
                 .filter(|f| f.owner == user)
-                .map(|f| (f.s3_key, f.hash, f.inline_content.is_some(), f.is_directory)))
+                .map(|f| (f.s3_key, f.hash, f.is_directory)))
         },
     )?;
-    let (s3_key, hash, is_inline, is_directory) =
+    let (s3_key, hash, is_directory) =
         lookup.ok_or_else(|| "file not found".to_string())?;
     if is_directory {
         return Err("folders do not have download URLs".to_string());
-    }
-    if is_inline {
-        return Err("file is stored inline and does not have a download URL".to_string());
     }
     if hash.is_empty() {
         return Err("file has no recorded hash; finalize the upload first".to_string());
@@ -631,19 +890,16 @@ pub fn request_download_url(
         })
         .ok_or_else(|| "s3 is not configured".to_string())?;
 
-    let client = build_s3_client(&cfg)?;
-    let presign = PresigningConfig::expires_in(Duration::from_secs(DOWNLOAD_URL_TTL_SECS))
-        .map_err(|e| format!("presign config: {e}"))?;
-    let presigned = futures_lite::future::block_on(
-        client
-            .get_object()
-            .bucket(cfg.bucket)
-            .key(s3_key)
-            .presigned(presign),
-    )
-    .map_err(|e| format!("presign: {e}"))?;
+    let url = presign_url(
+        "GET",
+        &cfg,
+        &s3_key,
+        None,
+        Duration::from_secs(DOWNLOAD_URL_TTL_SECS),
+        ctx.timestamp.to_micros_since_unix_epoch(),
+    )?;
 
-    Ok(presigned.uri().to_string())
+    Ok(url)
 }
 
 #[procedure]
@@ -692,22 +948,18 @@ pub fn replace_file_content(
     )?;
     let (s3_key, cfg) = lookup.ok_or_else(|| "file not found".to_string())?;
 
-    let client = build_s3_client(&cfg)?;
-
-    let presign = PresigningConfig::expires_in(Duration::from_secs(UPLOAD_URL_TTL_SECS))
-        .map_err(|e| format!("presign config: {e}"))?;
-    let mut req = client.put_object().bucket(cfg.bucket).key(s3_key.clone());
-    if let Some(c) = content_type.as_deref() {
-        if !c.is_empty() {
-            req = req.content_type(c);
-        }
-    }
-    let presigned = futures_lite::future::block_on(req.presigned(presign))
-        .map_err(|e| format!("presign: {e}"))?;
+    let upload_url = presign_url(
+        "PUT",
+        &cfg,
+        &s3_key,
+        content_type.as_deref(),
+        Duration::from_secs(UPLOAD_URL_TTL_SECS),
+        ctx.timestamp.to_micros_since_unix_epoch(),
+    )?;
 
     Ok(ReplaceTicket {
         file_id,
-        upload_url: presigned.uri().to_string(),
+        upload_url,
         s3_key,
     })
 }

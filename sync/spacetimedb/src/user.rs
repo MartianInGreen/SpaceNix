@@ -158,6 +158,76 @@ pub fn sign_out(ctx: &ReducerContext) -> Result<(), String> {
     }
 }
 
+#[spacetimedb::reducer]
+pub fn update_email(
+    ctx: &ReducerContext,
+    new_email: String,
+    current_password: String,
+) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
+    verify_current_password(ctx, &user.identity, &current_password)?;
+
+    let email = normalize_email(&new_email)?;
+    if email == user.email {
+        return Err("new email is the same as the current email".to_string());
+    }
+    if ctx.db.user().email().find(&email).is_some() {
+        return Err("an account with that email already exists".to_string());
+    }
+
+    ctx.db.user().identity().update(User {
+        email: email.clone(),
+        ..user
+    });
+    Ok(())
+}
+
+#[spacetimedb::reducer]
+pub fn update_password(
+    ctx: &ReducerContext,
+    current_password: String,
+    new_password: String,
+) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
+    verify_current_password(ctx, &user.identity, &current_password)?;
+    validate_password(&new_password)?;
+
+    let password_hash = hash_password(ctx, &new_password)?;
+    let cred = ctx
+        .db
+        .password()
+        .user()
+        .find(user.identity)
+        .ok_or_else(|| "password record missing".to_string())?;
+    ctx.db.password().user().update(PasswordCredential {
+        password_hash,
+        ..cred
+    });
+    Ok(())
+}
+
+fn verify_current_password(
+    ctx: &ReducerContext,
+    user_identity: &Identity,
+    password: &str,
+) -> Result<(), String> {
+    let cred = ctx
+        .db
+        .password()
+        .user()
+        .find(*user_identity)
+        .ok_or_else(|| "password record missing".to_string())?;
+    let parsed = PasswordHash::new(&cred.password_hash)
+        .map_err(|e| format!("stored password hash is invalid: {e}"))?;
+    if Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_err()
+    {
+        return Err("current password is incorrect".to_string());
+    }
+    Ok(())
+}
+
 pub fn require_registered_user(ctx: &ReducerContext) -> Result<User, String> {
     let user_identity = ctx
         .db

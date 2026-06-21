@@ -4,6 +4,20 @@ SpacetimeDB is a relational database that is also a server. It lets you upload a
 
 ---
 
+## Hard Rule: The User Publishes, Not You
+
+**Never publish, deploy, push, call reducers/procedures on, query, subscribe to, delete, clear, or otherwise touch any running SpacetimeDB database.** That includes `maincloud`, `local`, or any other server. No `spacetime publish`, no `spacetime call`, no `spacetime sql`, no `spacetime logs`, no `spacetime delete`, no `spacetime subscribe`. The user runs those commands themselves.
+
+You may:
+- Edit Rust module source under `sync/spacetimedb/src/`.
+- Run `spacetime build` to verify the module compiles.
+- Run `cargo check` / `cargo build` for the WASM target.
+- Regenerate TypeScript bindings with `pnpm gen:bindings` (this is a local codegen step, not a server touch).
+
+If a fix seems to require publishing to verify it works — stop. Tell the user the fix is ready and let them publish.
+
+---
+
 ## Critical Rules
 
 1. **Reducers are transactional.** They do not return data to callers. Use subscriptions to read data.
