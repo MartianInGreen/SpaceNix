@@ -10,12 +10,7 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  id: __t.u64(),
-  owner: __t.identity(),
-  name: __t.string(),
-  hostname: __t.option(__t.string()),
-  createdAt: __t.timestamp().name("created_at"),
-  lastSeenAt: __t.option(__t.timestamp()).name("last_seen_at"),
-  metricsRetention: __t.option(__t.timeDuration()).name("metrics_retention"),
-});
+export default {
+  deviceId: __t.u64(),
+  retentionSecs: __t.u64(),
+};

@@ -1,6 +1,18 @@
-use spacetimedb::{Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, view};
+use spacetimedb::{Identity, ReducerContext, SpacetimeType, Table, TimeDuration, Timestamp, ViewContext, view};
 
 use crate::user::{require_registered_user, session__view as _};
+
+/// Default retention for device metrics when a device row doesn't override
+/// it. One hour matches the previous hard-coded behaviour.
+pub const DEFAULT_METRICS_RETENTION_MICROS: i64 = 60 * 60 * 1_000_000;
+const MIN_METRICS_RETENTION_MICROS: i64 = 60 * 1_000_000;
+const MAX_METRICS_RETENTION_MICROS: i64 = 30 * 24 * 60 * 60 * 1_000_000;
+
+/// Returns the default [`TimeDuration`] for metrics retention. Wraps
+/// [`DEFAULT_METRICS_RETENTION_MICROS`] in a non-const constructor.
+pub fn default_metrics_retention() -> TimeDuration {
+    TimeDuration::from_micros(DEFAULT_METRICS_RETENTION_MICROS)
+}
 
 #[spacetimedb::table(accessor = device)]
 pub struct Device {
@@ -13,6 +25,9 @@ pub struct Device {
     pub hostname: Option<String>,
     pub created_at: Timestamp,
     pub last_seen_at: Option<Timestamp>,
+    /// How long device metrics samples are kept server-side for this device.
+    /// `None` falls back to [`DEFAULT_METRICS_RETENTION`].
+    pub metrics_retention: Option<TimeDuration>,
 }
 
 #[derive(SpacetimeType, Clone, Debug)]
@@ -23,6 +38,7 @@ pub struct DeviceMetadata {
     pub hostname: Option<String>,
     pub created_at: Timestamp,
     pub last_seen_at: Option<Timestamp>,
+    pub metrics_retention: Option<TimeDuration>,
 }
 
 impl From<Device> for DeviceMetadata {
@@ -34,6 +50,7 @@ impl From<Device> for DeviceMetadata {
             hostname: d.hostname,
             created_at: d.created_at,
             last_seen_at: d.last_seen_at,
+            metrics_retention: d.metrics_retention,
         }
     }
 }
@@ -79,6 +96,7 @@ pub fn register_device(
         hostname,
         created_at: ctx.timestamp,
         last_seen_at: None,
+        metrics_retention: None,
     });
     Ok(())
 }
@@ -153,6 +171,48 @@ pub fn delete_device(ctx: &ReducerContext, device_id: u64) -> Result<(), String>
         return Err("not your device".to_string());
     }
     ctx.db.device().id().delete(device_id);
+    Ok(())
+}
+
+/// Set the metrics retention for a device. `retention_secs == 0` clears the
+/// override and falls back to the server default. Bounded to one minute on
+/// the low end (so the prune pass always has work to do) and 30 days on the
+/// high end.
+#[spacetimedb::reducer]
+pub fn set_device_metrics_retention(
+    ctx: &ReducerContext,
+    device_id: u64,
+    retention_secs: u64,
+) -> Result<(), String> {
+    let user = require_registered_user(ctx)?;
+    let mut device = ctx
+        .db
+        .device()
+        .id()
+        .find(device_id)
+        .ok_or_else(|| "device not found".to_string())?;
+    if device.owner != user.identity {
+        return Err("not your device".to_string());
+    }
+    device.metrics_retention = if retention_secs == 0 {
+        None
+    } else {
+        let micros = (retention_secs as i64).saturating_mul(1_000_000);
+        if micros < MIN_METRICS_RETENTION_MICROS {
+            return Err(format!(
+                "retention must be at least {} seconds",
+                MIN_METRICS_RETENTION_MICROS / 1_000_000
+            ));
+        }
+        if micros > MAX_METRICS_RETENTION_MICROS {
+            return Err(format!(
+                "retention must be at most {} seconds",
+                MAX_METRICS_RETENTION_MICROS / 1_000_000
+            ));
+        }
+        Some(TimeDuration::from_micros(micros))
+    };
+    ctx.db.device().id().update(device);
     Ok(())
 }
 

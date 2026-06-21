@@ -30,10 +30,10 @@ pub trait reveal_ssh_key {
         id: u64,
 
         __callback: impl FnOnce(
-            &super::ProcedureEventContext,
-            Result<Result<Option<SshKeyValue>, String>, __sdk::InternalError>,
-        ) + Send
-        + 'static,
+                &super::ProcedureEventContext,
+                Result<Result<Option<SshKeyValue>, String>, __sdk::InternalError>,
+            ) + Send
+            + 'static,
     );
 }
 
@@ -43,10 +43,10 @@ impl reveal_ssh_key for super::RemoteProcedures {
         id: u64,
 
         __callback: impl FnOnce(
-            &super::ProcedureEventContext,
-            Result<Result<Option<SshKeyValue>, String>, __sdk::InternalError>,
-        ) + Send
-        + 'static,
+                &super::ProcedureEventContext,
+                Result<Result<Option<SshKeyValue>, String>, __sdk::InternalError>,
+            ) + Send
+            + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<Option<SshKeyValue>, String>>(

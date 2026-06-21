@@ -12,7 +12,7 @@ use futures::StreamExt;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Sparkline, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 use tokio::sync::mpsc;
 
@@ -25,9 +25,16 @@ fn format_metric_line(m: &DeviceMetricSample) -> String {
     use crate::util::formatting;
     let ram_pct = percent(m.ram_used_bytes, m.ram_total_bytes);
     let swap_pct = percent(m.swap_used_bytes, m.swap_total_bytes);
-    let storage_pct = percent(m.storage_used_bytes, m.storage_total_bytes);
+    let sync_pct = percent(
+        m.storage_sync_root_used_bytes,
+        m.storage_sync_root_total_bytes,
+    );
+    let sys_pct = percent(
+        m.storage_system_used_bytes,
+        m.storage_system_total_bytes,
+    );
     format!(
-        "cpu {:>4.1}% | ram {:>4.1}% {} | swap {:>4.1}% {} | net {}↓ {}↑ | storage {:>4.1}% {}",
+        "cpu {:>4.1}% | ram {:>4.1}% {} | swap {:>4.1}% {} | net {}↓ {}↑ | sync_root {:>4.1}% {} | sys {:>4.1}% {}",
         m.cpu_percent,
         ram_pct,
         formatting::bytes(m.ram_used_bytes),
@@ -35,8 +42,10 @@ fn format_metric_line(m: &DeviceMetricSample) -> String {
         formatting::bytes(m.swap_used_bytes),
         formatting::bytes(m.net_rx_bytes),
         formatting::bytes(m.net_tx_bytes),
-        storage_pct,
-        formatting::bytes(m.storage_used_bytes),
+        sync_pct,
+        formatting::bytes(m.storage_sync_root_used_bytes),
+        sys_pct,
+        formatting::bytes(m.storage_system_used_bytes),
     )
 }
 
@@ -242,7 +251,14 @@ struct DeviceRow {
     hostname: String,
     last_seen: String,
     metrics: Option<String>,
+    /// Configured server-side retention in seconds (`None` = server default).
+    metrics_retention_secs: Option<u64>,
+    /// Recent samples, sorted ascending by `recorded_at`. Capped to the
+    /// `MAX_HISTORY_POINTS` most recent so the graph stays readable.
+    history: Vec<DeviceMetricSample>,
 }
+
+const MAX_HISTORY_POINTS: usize = 60;
 
 #[derive(Debug)]
 enum TuiEvent {
@@ -329,6 +345,7 @@ impl App {
                 "SELECT * FROM my_ssh_keys",
                 "SELECT * FROM my_ssh_endpoints",
                 "SELECT * FROM my_devices",
+                "SELECT * FROM my_device_metrics",
                 "SELECT * FROM my_ui_commands",
                 "SELECT * FROM ui_event",
                 "SELECT * FROM my_user",
@@ -347,8 +364,13 @@ impl App {
         while !self.should_quit {
             terminal.draw(|frame| self.render(frame))?;
             match self.events.recv().await {
-                Some(TuiEvent::Input(Event::Key(key))) => self.on_key(key),
-                Some(TuiEvent::Input(_)) => {}
+                Some(TuiEvent::Input(Event::Key(key))) => {
+                    self.on_key(key);
+                    self.process_ui_commands();
+                }
+                Some(TuiEvent::Input(_)) => {
+                    self.process_ui_commands();
+                }
                 Some(TuiEvent::Tick) => {
                     self.refresh_files();
                     self.refresh_secrets();
@@ -912,10 +934,21 @@ impl App {
     fn refresh_devices(&mut self) {
         let mut latest: std::collections::HashMap<u64, DeviceMetricSample> =
             std::collections::HashMap::new();
+        let mut history: std::collections::HashMap<u64, Vec<DeviceMetricSample>> =
+            std::collections::HashMap::new();
         for m in self.state.conn.db().my_device_metrics().iter() {
             let entry = latest.entry(m.device_id).or_insert_with(|| m.clone());
             if m.recorded_at > entry.recorded_at {
                 *entry = m.clone();
+            }
+            let samples = history.entry(m.device_id).or_default();
+            samples.push(m.clone());
+        }
+        for samples in history.values_mut() {
+            samples.sort_by(|a, b| a.recorded_at.cmp(&b.recorded_at));
+            if samples.len() > MAX_HISTORY_POINTS {
+                let drop = samples.len() - MAX_HISTORY_POINTS;
+                samples.drain(0..drop);
             }
         }
         let mut rows: Vec<DeviceRow> = self
@@ -933,6 +966,10 @@ impl App {
                     .map(|ts| format!("{:?}", ts))
                     .unwrap_or_else(|| "never".into()),
                 metrics: latest.get(&d.id).map(format_metric_line),
+                metrics_retention_secs: d.metrics_retention.map(|t| {
+                    (t.to_micros() / 1_000_000).max(0) as u64
+                }),
+                history: history.remove(&d.id).unwrap_or_default(),
             })
             .collect();
         rows.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1253,6 +1290,11 @@ impl App {
     }
 
     fn render_devices(&mut self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(area);
+
         let items: Vec<ListItem> = self
             .device_items
             .iter()
@@ -1281,7 +1323,199 @@ impl App {
             .block(Block::default().borders(Borders::ALL).title(" Devices "))
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
             .highlight_symbol("> ");
-        frame.render_stateful_widget(list, area, &mut self.devices);
+        frame.render_stateful_widget(list, chunks[0], &mut self.devices);
+
+        // Detail panel: sparklines for the selected device.
+        let detail = Block::default()
+            .borders(Borders::ALL)
+            .title(" Metrics history ");
+        if let Some(row) = self.device_items.get(self.devices.selected().unwrap_or(0)) {
+            self.render_device_detail(frame, chunks[1], row);
+        } else {
+            frame.render_widget(detail.title(" Metrics history (no device selected) "), chunks[1]);
+        }
+    }
+
+    fn render_device_detail(&self, frame: &mut Frame, area: Rect, row: &DeviceRow) {
+        let header_area = Rect {
+            height: 2,
+            ..area
+        };
+        let graph_area = Rect {
+            y: area.y + 2,
+            height: area.height.saturating_sub(2),
+            ..area
+        };
+
+        let retention = match row.metrics_retention_secs {
+            Some(s) => format!(
+                "retention: {} (set via `spacenix device retention {} <seconds>`)",
+                humantime::format_duration(std::time::Duration::from_secs(s)),
+                row.id
+            ),
+            None => "retention: server default (1h)".to_string(),
+        };
+        let header = Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("#{} {}", row.id, row.name),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::raw("    "),
+            Span::styled(retention, Style::default().fg(Color::Yellow)),
+        ]))
+        .block(Block::default().borders(Borders::ALL).title(" Detail "));
+        frame.render_widget(header, header_area);
+
+        if row.history.is_empty() {
+            let placeholder = Paragraph::new(Line::from(Span::styled(
+                "no samples yet — wait for the next report (every 30s)",
+                Style::default().fg(Color::DarkGray),
+            )))
+            .block(Block::default().borders(Borders::ALL).title(" Metrics history "));
+            frame.render_widget(placeholder, graph_area);
+            return;
+        }
+
+        let cpu: Vec<u64> = row
+            .history
+            .iter()
+            .map(|m| m.cpu_percent.clamp(0.0, 100.0) as u64)
+            .collect();
+        let ram: Vec<u64> = row
+            .history
+            .iter()
+            .map(|m| percent(m.ram_used_bytes, m.ram_total_bytes) as u64)
+            .collect();
+        let sync: Vec<u64> = row
+            .history
+            .iter()
+            .map(|m| {
+                percent(
+                    m.storage_sync_root_used_bytes,
+                    m.storage_sync_root_total_bytes,
+                ) as u64
+            })
+            .collect();
+        let sys: Vec<u64> = row
+            .history
+            .iter()
+            .map(|m| {
+                percent(
+                    m.storage_system_used_bytes,
+                    m.storage_system_total_bytes,
+                ) as u64
+            })
+            .collect();
+
+        // Net speed (bytes/sec) is derived from the delta between
+        // consecutive samples. The first sample has no prior so its
+        // series is empty — pad so `Sparkline` still draws a point.
+        let mut net_rx_bps: Vec<u64> = Vec::with_capacity(row.history.len());
+        let mut net_tx_bps: Vec<u64> = Vec::with_capacity(row.history.len());
+        for w in row.history.windows(2) {
+            let dt_micros = w[1]
+                .recorded_at
+                .to_micros_since_unix_epoch()
+                .saturating_sub(w[0].recorded_at.to_micros_since_unix_epoch())
+                .max(1) as f64
+                / 1_000_000.0;
+            let rx_delta = w[1]
+                .net_rx_bytes
+                .saturating_sub(w[0].net_rx_bytes) as f64
+                / dt_micros;
+            let tx_delta = w[1]
+                .net_tx_bytes
+                .saturating_sub(w[0].net_tx_bytes) as f64
+                / dt_micros;
+            net_rx_bps.push(rx_delta as u64);
+            net_tx_bps.push(tx_delta as u64);
+        }
+
+        // Pick a sensible y-axis for the net sparkline. The "max" is
+        // the larger of the two series so neither gets clipped, and
+        // clamped to at least 1 KiB/s so a quiet network still has
+        // visible variation.
+        let net_max_bps = net_rx_bps
+            .iter()
+            .chain(net_tx_bps.iter())
+            .copied()
+            .max()
+            .unwrap_or(1024)
+            .max(1024);
+
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(22),
+                Constraint::Percentage(22),
+                Constraint::Percentage(22),
+                Constraint::Percentage(22),
+                Constraint::Percentage(12),
+            ])
+            .split(graph_area);
+
+        // Sparkline::data requires at least 2 points to render. Pad a single
+        // sample so the user sees something on the first report.
+        let pad = |d: &[u64]| -> Vec<u64> {
+            if d.is_empty() {
+                return vec![0, 0];
+            }
+            if d.len() < 2 {
+                let mut v = d.to_vec();
+                v.push(*d.last().unwrap_or(&0));
+                v
+            } else {
+                d.to_vec()
+            }
+        };
+        let cpu = pad(&cpu);
+        let ram = pad(&ram);
+        let sync = pad(&sync);
+        let sys = pad(&sys);
+        let net_rx = pad(&net_rx_bps);
+        let net_tx = pad(&net_tx_bps);
+
+        let cpu_widget = Sparkline::default()
+            .block(Block::default().borders(Borders::ALL).title(" CPU % (last samples) "))
+            .data(&cpu)
+            .max(100)
+            .style(Style::default().fg(Color::Red));
+        let ram_widget = Sparkline::default()
+            .block(Block::default().borders(Borders::ALL).title(" RAM % "))
+            .data(&ram)
+            .max(100)
+            .style(Style::default().fg(Color::Green));
+        let sync_widget = Sparkline::default()
+            .block(Block::default().borders(Borders::ALL).title(" storage sync_root % "))
+            .data(&sync)
+            .max(100)
+            .style(Style::default().fg(Color::Cyan));
+        let sys_widget = Sparkline::default()
+            .block(Block::default().borders(Borders::ALL).title(" storage system % "))
+            .data(&sys)
+            .max(100)
+            .style(Style::default().fg(Color::Blue));
+        let rx_widget = Sparkline::default()
+            .block(Block::default().borders(Borders::ALL).title(" net rx B/s "))
+            .data(&net_rx)
+            .max(net_max_bps)
+            .style(Style::default().fg(Color::Magenta));
+        let tx_widget = Sparkline::default()
+            .block(Block::default().borders(Borders::ALL).title(" net tx B/s "))
+            .data(&net_tx)
+            .max(net_max_bps)
+            .style(Style::default().fg(Color::Yellow));
+
+        frame.render_widget(cpu_widget, rows[0]);
+        frame.render_widget(ram_widget, rows[1]);
+        frame.render_widget(sync_widget, rows[2]);
+        frame.render_widget(sys_widget, rows[3]);
+        let net_row = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[4]);
+        frame.render_widget(rx_widget, net_row[0]);
+        frame.render_widget(tx_widget, net_row[1]);
     }
 
     fn render_account(&mut self, frame: &mut Frame, area: Rect) {

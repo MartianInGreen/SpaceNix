@@ -48,6 +48,7 @@ export const Device = __t.object("Device", {
   hostname: __t.option(__t.string()),
   createdAt: __t.timestamp(),
   lastSeenAt: __t.option(__t.timestamp()),
+  metricsRetention: __t.option(__t.timeDuration()),
 });
 export type Device = __Infer<typeof Device>;
 
@@ -58,6 +59,7 @@ export const DeviceMetadata = __t.object("DeviceMetadata", {
   hostname: __t.option(__t.string()),
   createdAt: __t.timestamp(),
   lastSeenAt: __t.option(__t.timestamp()),
+  metricsRetention: __t.option(__t.timeDuration()),
 });
 export type DeviceMetadata = __Infer<typeof DeviceMetadata>;
 
@@ -72,8 +74,11 @@ export const DeviceMetric = __t.object("DeviceMetric", {
   swapTotalBytes: __t.u64(),
   netRxBytes: __t.u64(),
   netTxBytes: __t.u64(),
-  storageUsedBytes: __t.u64(),
-  storageTotalBytes: __t.u64(),
+  storageSyncRootUsedBytes: __t.u64(),
+  storageSyncRootTotalBytes: __t.u64(),
+  storageSystemUsedBytes: __t.u64(),
+  storageSystemTotalBytes: __t.u64(),
+  syncRootPath: __t.string(),
 });
 export type DeviceMetric = __Infer<typeof DeviceMetric>;
 
@@ -88,8 +93,11 @@ export const DeviceMetricSample = __t.object("DeviceMetricSample", {
   swapTotalBytes: __t.u64(),
   netRxBytes: __t.u64(),
   netTxBytes: __t.u64(),
-  storageUsedBytes: __t.u64(),
-  storageTotalBytes: __t.u64(),
+  storageSyncRootUsedBytes: __t.u64(),
+  storageSyncRootTotalBytes: __t.u64(),
+  storageSystemUsedBytes: __t.u64(),
+  storageSystemTotalBytes: __t.u64(),
+  syncRootPath: __t.string(),
 });
 export type DeviceMetricSample = __Infer<typeof DeviceMetricSample>;
 
@@ -101,8 +109,11 @@ export const DeviceMetricsReport = __t.object("DeviceMetricsReport", {
   swapTotalBytes: __t.u64(),
   netRxBytes: __t.u64(),
   netTxBytes: __t.u64(),
-  storageUsedBytes: __t.u64(),
-  storageTotalBytes: __t.u64(),
+  storageSyncRootUsedBytes: __t.u64(),
+  storageSyncRootTotalBytes: __t.u64(),
+  storageSystemUsedBytes: __t.u64(),
+  storageSystemTotalBytes: __t.u64(),
+  syncRootPath: __t.string(),
 });
 export type DeviceMetricsReport = __Infer<typeof DeviceMetricsReport>;
 

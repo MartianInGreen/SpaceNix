@@ -3056,6 +3056,7 @@ dependencies = [
  "hex",
  "hmac",
  "humantime",
+ "libc",
  "module_bindings",
  "once_cell",
  "open",

@@ -11,8 +11,6 @@ import {
   Terminal,
   Cpu,
   MemoryStick,
-  HardDrive,
-  Network,
   Clock,
 } from "lucide-react";
 
@@ -21,9 +19,16 @@ import type {
   DeviceMetadata,
   SshEndpointMetadata,
 } from "@/module_bindings/types";
-import { cn, formatBytes, formatTimestamp } from "@/lib/utils";
+import { cn, formatTimestamp } from "@/lib/utils";
+import { useNow } from "@/lib/use-now";
 import { reportError, reportSuccess } from "@/lib/toast";
 import { PageHeader, EmptyState, ConfirmDelete, Spinner, ChipList } from "@/components/common";
+import {
+  DeviceMetricsHistory,
+  NetworkSummary,
+} from "@/components/metrics-history";
+import { historyForDevice, type MetricSample } from "@/components/metrics-data";
+import { Sparkline } from "@/components/sparkline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,23 +59,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type MetricRow = {
-  id: bigint;
-  deviceId: bigint;
-  recordedAt: { microsSinceUnixEpoch: bigint };
-  cpuPercent: number;
-  ramUsedBytes: bigint;
-  ramTotalBytes: bigint;
-  swapUsedBytes: bigint;
-  swapTotalBytes: bigint;
-  netRxBytes: bigint;
-  netTxBytes: bigint;
-  storageUsedBytes: bigint;
-  storageTotalBytes: bigint;
-};
-
-function pickLatest(metrics: readonly MetricRow[]): Map<string, MetricRow> {
-  const map = new Map<string, MetricRow>();
+function pickLatest(metrics: readonly MetricSample[]): Map<string, MetricSample> {
+  const map = new Map<string, MetricSample>();
   for (const m of metrics) {
     const key = String(m.deviceId);
     const current = map.get(key);
@@ -90,55 +80,63 @@ function fmtPct(n: number): string {
   return `${n.toFixed(1)}%`;
 }
 
-function ageSeconds(m: { recordedAt: { microsSinceUnixEpoch: bigint } }): number {
-  const now = BigInt(Date.now()) * 1000n;
+function ageSeconds(m: { recordedAt: { microsSinceUnixEpoch: bigint } }, nowMs: number): number {
+  const now = BigInt(nowMs) * 1000n;
   const micros = m.recordedAt.microsSinceUnixEpoch;
   if (micros > now) return 0;
   return Number((now - micros) / 1_000_000n);
 }
 
-function MetricBar({
-  label,
-  icon: Icon,
-  used,
-  total,
-  text,
-}: {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  used: bigint;
-  total: bigint;
-  text?: string;
-}) {
-  const pct = Math.min(100, Math.max(0, percent(used, total)));
-  const danger = pct >= 90;
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-xs">
-        <span className="flex items-center gap-1.5 text-muted-foreground">
-          <Icon className="size-3.5" />
-          {label}
-        </span>
-        <span className="font-mono">
-          {text ?? `${formatBytes(used)} / ${formatBytes(total)}`}
-        </span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn(
-            "h-full rounded-full transition-all",
-            danger ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500"
-          )}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
+type NetSpeed = { rxBps: number; txBps: number };
+
+/**
+ * Compute instantaneous rx/tx bytes/sec from the last two samples in
+ * `samples`. The series must be in chronological order (which is how
+ * `historyForDevice` returns them). Returns zeros when there is only
+ * one sample.
+ */
+function netSpeed(samples: readonly MetricSample[]): NetSpeed {
+  if (samples.length < 2) return { rxBps: 0, txBps: 0 };
+  const a = samples[samples.length - 2]!;
+  const b = samples[samples.length - 1]!;
+  const dtMicros = b.recordedAt.microsSinceUnixEpoch - a.recordedAt.microsSinceUnixEpoch;
+  if (dtMicros <= 0n) return { rxBps: 0, txBps: 0 };
+  const dt = Number(dtMicros) / 1_000_000;
+  const rxDelta = Number(b.netRxBytes - a.netRxBytes);
+  const txDelta = Number(b.netTxBytes - a.netTxBytes);
+  return {
+    rxBps: Math.max(0, rxDelta / dt),
+    txBps: Math.max(0, txDelta / dt),
+  };
 }
 
-function DeviceMetricsCard({ metric }: { metric: MetricRow }) {
-  const age = ageSeconds(metric);
+function formatRate(bps: number): string {
+  if (!Number.isFinite(bps) || bps <= 0) return "0 B/s";
+  const units = ["B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s"];
+  let v = bps;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  if (i === 0) return `${Math.round(v)} ${units[i]}`;
+  return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
+}
+
+function DeviceMetricsCard({
+  metric,
+  samples,
+}: {
+  metric: MetricSample;
+  samples: readonly MetricSample[];
+}) {
+  // `useNow` ticks once a second so the "x seconds ago" label stays
+  // current between sample arrivals (the SDK only pushes new rows every
+  // 30s, which would otherwise leave the age frozen at 0s forever).
+  const now = useNow(1000);
+  const age = ageSeconds(metric, now);
   const stale = age > 90;
+  const speed = netSpeed(samples);
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
@@ -148,7 +146,7 @@ function DeviceMetricsCard({ metric }: { metric: MetricRow }) {
         </CardTitle>
         <span
           className={cn(
-            "text-xs",
+            "text-xs tabular-nums",
             stale ? "text-amber-500" : "text-muted-foreground"
           )}
         >
@@ -178,41 +176,11 @@ function DeviceMetricsCard({ metric }: { metric: MetricRow }) {
 
         <Separator />
 
-        <MetricBar
-          label="RAM"
-          icon={MemoryStick}
-          used={metric.ramUsedBytes}
-          total={metric.ramTotalBytes}
-        />
-        <MetricBar
-          label="Swap"
-          icon={MemoryStick}
-          used={metric.swapUsedBytes}
-          total={metric.swapTotalBytes}
-        />
-        <MetricBar
-          label="Storage"
-          icon={HardDrive}
-          used={metric.storageUsedBytes}
-          total={metric.storageTotalBytes}
-        />
+        <DeviceMetricsHistory samples={samples} latest={metric} />
 
         <Separator />
 
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Network className="size-3.5" /> Network RX (cumulative)
-            </div>
-            <div className="font-mono">{formatBytes(metric.netRxBytes)}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Network className="size-3.5" /> Network TX (cumulative)
-            </div>
-            <div className="font-mono">{formatBytes(metric.netTxBytes)}</div>
-          </div>
-        </div>
+        <NetworkSummary latest={metric} speed={speed} />
 
         <div className="flex items-center gap-1.5 pt-1 text-[11px] text-muted-foreground">
           <Clock className="size-3" />
@@ -223,34 +191,81 @@ function DeviceMetricsCard({ metric }: { metric: MetricRow }) {
   );
 }
 
-function MetricsSummaryCell({ metric }: { metric: MetricRow | undefined }) {
+function MetricsSummaryCell({
+  metric,
+  samples,
+}: {
+  metric: MetricSample | undefined;
+  samples: readonly MetricSample[];
+}) {
+  const now = useNow(1000);
   if (!metric) {
     return <span className="text-xs text-muted-foreground">no reports yet</span>;
   }
-  const age = ageSeconds(metric);
+  const age = ageSeconds(metric, now);
   const stale = age > 90;
   const ramPct = percent(metric.ramUsedBytes, metric.ramTotalBytes);
+  const cpu = samples.map((s) => Math.max(0, Math.min(100, s.cpuPercent)));
+  const ram = samples.map((s) =>
+    Math.max(0, Math.min(100, percent(s.ramUsedBytes, s.ramTotalBytes))),
+  );
+  const sync = samples.map((s) =>
+    Math.max(
+      0,
+      Math.min(
+        100,
+        percent(s.storageSyncRootUsedBytes, s.storageSyncRootTotalBytes),
+      ),
+    ),
+  );
+  const speed = netSpeed(samples);
   return (
-    <div className="space-y-0.5 text-xs">
+    <div className="space-y-1 text-xs">
       <div className="flex items-center gap-2">
         <Cpu className="size-3 text-muted-foreground" />
         <span className="font-mono">{fmtPct(metric.cpuPercent)}</span>
-        <span className="text-muted-foreground">cpu</span>
+        <Sparkline
+          values={cpu}
+          width={80}
+          height={16}
+          strokeClass="stroke-red-500 dark:stroke-red-400"
+          title="cpu"
+        />
+        <span className="text-muted-foreground">ram</span>
+        <span className="font-mono">{fmtPct(ramPct)}</span>
       </div>
       <div className="flex items-center gap-2">
         <MemoryStick className="size-3 text-muted-foreground" />
-        <span className="font-mono">{fmtPct(ramPct)}</span>
-        <span className="text-muted-foreground">
-          ram · {formatBytes(metric.ramUsedBytes)}
-        </span>
+        <Sparkline
+          values={ram}
+          width={80}
+          height={16}
+          strokeClass="stroke-emerald-500 dark:stroke-emerald-400"
+          title="ram"
+        />
+        <span className="text-muted-foreground">sync</span>
+        <Sparkline
+          values={sync}
+          width={80}
+          height={16}
+          strokeClass="stroke-cyan-500 dark:stroke-cyan-400"
+          title="sync_root"
+        />
       </div>
       <div
         className={cn(
-          "text-[10px]",
+          "flex items-center gap-1.5 text-[10px] tabular-nums",
           stale ? "text-amber-500" : "text-muted-foreground"
         )}
       >
-        {stale ? "stale" : "live"} · {age}s ago
+        <span>
+          {stale ? "stale" : "live"} · {age}s ago · {samples.length} sample
+          {samples.length === 1 ? "" : "s"}
+        </span>
+        <span className="text-muted-foreground">·</span>
+        <span className="font-mono">
+          ↓ {formatRate(speed.rxBps)} · ↑ {formatRate(speed.txBps)}
+        </span>
       </div>
     </div>
   );
@@ -263,7 +278,6 @@ export function DevicesPage() {
   const registerDevice = useReducer(reducers.registerDevice);
   const renameDevice = useReducer(reducers.renameDevice);
   const setDeviceHostname = useReducer(reducers.setDeviceHostname);
-  const touchDevice = useReducer(reducers.touchDevice);
   const deleteDevice = useReducer(reducers.deleteDevice);
   const setSshEndpointDevices = useReducer(reducers.setSshEndpointDevices);
   const setSshEndpointEnabled = useReducer(reducers.setSshEndpointEnabled);
@@ -279,7 +293,7 @@ export function DevicesPage() {
   );
 
   const latestByDevice = React.useMemo(
-    () => pickLatest(metricRows as readonly MetricRow[]),
+    () => pickLatest(metricRows),
     [metricRows]
   );
 
@@ -340,6 +354,9 @@ export function DevicesPage() {
       <DeviceMetricsDialog
         device={metricsFor}
         metric={metricsFor ? latestByDevice.get(String(metricsFor.id)) : undefined}
+        samples={
+          metricsFor ? historyForDevice(metricRows, metricsFor.id) : []
+        }
         onOpenChange={(o) => !o && setMetricsFor(null)}
       />
 
@@ -378,6 +395,7 @@ export function DevicesPage() {
                 const eps = endpointsForDevice(id);
                 const enabledCount = eps.filter((e) => e.enabled).length;
                 const metric = latestByDevice.get(id);
+                const samples = historyForDevice(metricRows, d.id);
                 return (
                   <TableRow key={id}>
                     <TableCell className="font-medium">{d.name}</TableCell>
@@ -425,27 +443,12 @@ export function DevicesPage() {
                         onClick={() => setMetricsFor(d)}
                         title="View device metrics"
                       >
-                        <MetricsSummaryCell metric={metric} />
+                        <MetricsSummaryCell metric={metric} samples={samples} />
                       </Button>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatTimestamp(d.createdAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Mark seen"
-                          onClick={async () => {
-                            try {
-                              await touchDevice({ deviceId: d.id });
-                              reportSuccess(`Marked "${d.name}" as seen.`);
-                            } catch (err) {
-                              reportError(err);
-                            }
-                          }}
-                        >
-                          <Activity className="size-4" />
-                        </Button>
                         <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => setEditing(d)}>
                           <Pencil className="size-4" />
                         </Button>
@@ -747,15 +750,17 @@ function DeviceSshDialog({
 function DeviceMetricsDialog({
   device,
   metric,
+  samples,
   onOpenChange,
 }: {
   device: DeviceMetadata | null;
-  metric: MetricRow | undefined;
+  metric: MetricSample | undefined;
+  samples: readonly MetricSample[];
   onOpenChange: (open: boolean) => void;
 }) {
   return (
     <Dialog open={device !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Laptop className="size-4" />
@@ -771,7 +776,7 @@ function DeviceMetricsDialog({
           </DialogDescription>
         </DialogHeader>
         {metric ? (
-          <DeviceMetricsCard metric={metric} />
+          <DeviceMetricsCard metric={metric} samples={samples} />
         ) : (
           <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             No metrics have been reported for this device yet. The

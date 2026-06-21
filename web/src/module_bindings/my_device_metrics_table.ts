@@ -21,6 +21,9 @@ export default __t.row({
   swapTotalBytes: __t.u64().name("swap_total_bytes"),
   netRxBytes: __t.u64().name("net_rx_bytes"),
   netTxBytes: __t.u64().name("net_tx_bytes"),
-  storageUsedBytes: __t.u64().name("storage_used_bytes"),
-  storageTotalBytes: __t.u64().name("storage_total_bytes"),
+  storageSyncRootUsedBytes: __t.u64().name("storage_sync_root_used_bytes"),
+  storageSyncRootTotalBytes: __t.u64().name("storage_sync_root_total_bytes"),
+  storageSystemUsedBytes: __t.u64().name("storage_system_used_bytes"),
+  storageSystemTotalBytes: __t.u64().name("storage_system_total_bytes"),
+  syncRootPath: __t.string().name("sync_root_path"),
 });

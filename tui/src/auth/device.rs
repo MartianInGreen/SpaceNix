@@ -24,7 +24,11 @@ pub async fn ensure_local_device(config: Arc<Config>, state: &ConnState) -> Resu
         .conn
         .subscription_builder()
         .on_error(|_ctx, err| tracing::error!(?err, "devices subscription error"))
-        .subscribe(["SELECT * FROM my_devices"]);
+        .subscribe([
+            "SELECT * FROM my_devices",
+            "SELECT * FROM my_ssh_keys",
+            "SELECT * FROM my_ssh_endpoints",
+        ]);
     tokio::time::sleep(Duration::from_millis(400)).await;
 
     if let Some(local) = LocalDevice::load(&config.device_file())? {
@@ -40,18 +44,25 @@ pub async fn ensure_local_device(config: Arc<Config>, state: &ConnState) -> Resu
 
     let hostname = local_hostname();
     let devices = list_devices(state);
+    let mut just_registered = false;
     let selected = match choose_device(&devices, hostname.as_deref())? {
         DeviceSelection::Existing(device) => device,
         DeviceSelection::Register { name, hostname } => {
             register_device(state, name.clone(), hostname.clone()).await?;
             tokio::time::sleep(Duration::from_millis(500)).await;
-            list_devices(state)
+            let device = list_devices(state)
                 .into_iter()
                 .filter(|d| d.name == name && d.hostname == hostname)
                 .max_by_key(|d| d.id)
-                .context("registered device but could not find it in my_devices")?
+                .context("registered device but could not find it in my_devices")?;
+            just_registered = true;
+            device
         }
     };
+
+    if just_registered {
+        maybe_create_ssh_endpoint(state, &selected).await.ok();
+    }
 
     touch_device(state, selected.id).await.ok();
     let local = LocalDevice {
@@ -214,4 +225,120 @@ fn local_hostname() -> Option<String> {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
         })
+}
+
+fn local_username() -> Option<String> {
+    for var in ["USER", "LOGNAME"] {
+        if let Ok(v) = std::env::var(var) {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn prompt_line(prompt: &str) -> Result<String> {
+    print!("{prompt}");
+    std::io::stdout().flush().ok();
+    let mut answer = String::new();
+    std::io::stdin()
+        .read_line(&mut answer)
+        .with_context(|| format!("reading {prompt}"))?;
+    Ok(answer.trim().to_string())
+}
+
+async fn maybe_create_ssh_endpoint(state: &ConnState, device: &DeviceCandidate) -> Result<()> {
+    let mut keys: Vec<_> = state
+        .conn
+        .db()
+        .my_ssh_keys()
+        .iter()
+        .map(|k| (k.id, k.name.clone()))
+        .collect();
+    keys.sort_by(|a, b| a.1.cmp(&b.1));
+
+    println!();
+    println!("Add this device as an SSH endpoint?");
+    if keys.is_empty() {
+        println!("  (no SSH keys are stored yet — skipping)");
+        return Ok(());
+    }
+    for (idx, (id, name)) in keys.iter().enumerate() {
+        println!("  {}. #{} {}", idx + 1, id, name);
+    }
+    println!("  s. skip");
+    let answer = prompt_line("Key [s]: ")?;
+    if answer.is_empty() || answer.eq_ignore_ascii_case("s") {
+        return Ok(());
+    }
+    let index: usize = answer
+        .parse()
+        .context("ssh key selection must be a number or s")?;
+    let Some((key_id, _)) = keys.get(index.saturating_sub(1)) else {
+        anyhow::bail!("ssh key selection out of range");
+    };
+
+    let default_host = device
+        .hostname
+        .clone()
+        .or_else(local_hostname)
+        .unwrap_or_else(|| device.name.clone());
+    let host = {
+        let s = prompt_line(&format!("Host [{default_host}]: "))?;
+        if s.is_empty() { default_host.clone() } else { s }
+    };
+    let port_str = prompt_line("Port [22]: ")?;
+    let port: u16 = if port_str.is_empty() {
+        22
+    } else {
+        port_str
+            .parse()
+            .with_context(|| format!("invalid port: {port_str}"))?
+    };
+    let default_user = local_username().unwrap_or_else(|| "root".to_string());
+    let username = {
+        let s = prompt_line(&format!("Username [{default_user}]: "))?;
+        if s.is_empty() { default_user } else { s }
+    };
+    let default_name = format!("{}:{}", username, host);
+    let name = {
+        let s = prompt_line(&format!("Endpoint name [{default_name}]: "))?;
+        if s.is_empty() { default_name } else { s }
+    };
+
+    create_ssh_endpoint(state, name, host, port, username, *key_id, device.id).await?;
+    println!("✓ ssh endpoint created");
+    Ok(())
+}
+
+async fn create_ssh_endpoint(
+    state: &ConnState,
+    name: String,
+    host: String,
+    port: u16,
+    username: String,
+    key_id: u64,
+    device_id: u64,
+) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+    state
+        .conn
+        .reducers()
+        .set_ssh_endpoint_then(
+            name,
+            host,
+            port,
+            username,
+            key_id,
+            vec![device_id.to_string()],
+            Vec::new(),
+            true,
+            move |_ctx, res| {
+                let _ = tx.send(res);
+            },
+        )
+        .context("invoking set_ssh_endpoint")?;
+    wait_unit("set_ssh_endpoint", rx).await
 }

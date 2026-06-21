@@ -102,29 +102,35 @@ pub fn connect(config: &Config, token: Option<String>) -> Result<ConnState> {
 
     // Background thread that advances the connection's message loop.
     //
-    // The SDK ships a `run_threaded` helper but it `panic!`s on any
-    // non-normal-disconnect error (e.g. a 5xx from the host during the
-    // initial handshake), which would take the whole TUI process down
-    // even though the user might be able to recover by retrying. We run
-    // our own `frame_tick` loop and swallow non-fatal errors so the TUI
-    // can report the failure via `status_rx` and the caller can decide
-    // what to do.
+    // We use `advance_one_message_blocking` (the same call the SDK's
+    // built-in `run_threaded` makes) rather than `frame_tick`, which
+    // drains only the *currently pending* messages and returns
+    // immediately when the queue is empty. Wrapping `frame_tick` in a
+    // `loop {}` is what was previously pinning one CPU core — the
+    // blocking variant sleeps on the WebSocket channel and only wakes
+    // when a real message arrives.
+    //
+    // The SDK's `run_threaded` helper panics on any non-normal
+    // disconnect error, so we hand-roll this loop, log the error, and
+    // back off briefly so a transient host hiccup doesn't take the TUI
+    // process down. The caller observes the failure via `status_rx`.
     let conn_for_thread = Arc::clone(&conn);
     let _handle = std::thread::Builder::new()
         .name("spacenix-stdb".to_owned())
         .spawn(move || {
             loop {
-                // The two outcomes we treat as terminal:
-                //   1. The connection has been disconnected (we asked for it).
-                //   2. `frame_tick` reports `is_active() == false`, which means
-                //      the SDK has given up.
                 if !conn_for_thread.is_active() {
                     return;
                 }
-                if let Err(err) = conn_for_thread.frame_tick() {
-                    tracing::warn!(?err, "spacenix-stdb tick error");
-                    // Brief pause so we don't spin if the error is sticky.
-                    std::thread::sleep(std::time::Duration::from_millis(200));
+                match conn_for_thread.advance_one_message_blocking() {
+                    Ok(()) => {}
+                    Err(err) => {
+                        tracing::warn!(?err, "spacenix-stdb advance error");
+                        // Back off so a sticky error doesn't burn CPU
+                        // (which is what the previous `frame_tick`-in-
+                        // a-loop design was doing).
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
                 }
             }
         })

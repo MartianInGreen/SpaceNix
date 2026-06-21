@@ -6,57 +6,53 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 #[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug)]
 #[sats(crate = __lib)]
-pub(super) struct SendUiEventArgs {
-    pub target_device_id: Option<u64>,
-    pub kind: String,
-    pub payload_json: String,
+pub(super) struct SetDeviceMetricsRetentionArgs {
+    pub device_id: u64,
+    pub retention_secs: u64,
 }
 
-impl From<SendUiEventArgs> for super::Reducer {
-    fn from(args: SendUiEventArgs) -> Self {
-        Self::SendUiEvent {
-            target_device_id: args.target_device_id,
-            kind: args.kind,
-            payload_json: args.payload_json,
+impl From<SetDeviceMetricsRetentionArgs> for super::Reducer {
+    fn from(args: SetDeviceMetricsRetentionArgs) -> Self {
+        Self::SetDeviceMetricsRetention {
+            device_id: args.device_id,
+            retention_secs: args.retention_secs,
         }
     }
 }
 
-impl __sdk::InModule for SendUiEventArgs {
+impl __sdk::InModule for SetDeviceMetricsRetentionArgs {
     type Module = super::RemoteModule;
 }
 
 #[allow(non_camel_case_types)]
-/// Extension trait for access to the reducer `send_ui_event`.
+/// Extension trait for access to the reducer `set_device_metrics_retention`.
 ///
 /// Implemented for [`super::RemoteReducers`].
-pub trait send_ui_event {
-    /// Request that the remote module invoke the reducer `send_ui_event` to run as soon as possible.
+pub trait set_device_metrics_retention {
+    /// Request that the remote module invoke the reducer `set_device_metrics_retention` to run as soon as possible.
     ///
     /// This method returns immediately, and errors only if we are unable to send the request.
     /// The reducer will run asynchronously in the future,
     ///  and this method provides no way to listen for its completion status.
-    /// /// Use [`send_ui_event:send_ui_event_then`] to run a callback after the reducer completes.
-    fn send_ui_event(
+    /// /// Use [`set_device_metrics_retention:set_device_metrics_retention_then`] to run a callback after the reducer completes.
+    fn set_device_metrics_retention(
         &self,
-        target_device_id: Option<u64>,
-        kind: String,
-        payload_json: String,
+        device_id: u64,
+        retention_secs: u64,
     ) -> __sdk::Result<()> {
-        self.send_ui_event_then(target_device_id, kind, payload_json, |_, _| {})
+        self.set_device_metrics_retention_then(device_id, retention_secs, |_, _| {})
     }
 
-    /// Request that the remote module invoke the reducer `send_ui_event` to run as soon as possible,
+    /// Request that the remote module invoke the reducer `set_device_metrics_retention` to run as soon as possible,
     /// registering `callback` to run when we are notified that the reducer completed.
     ///
     /// This method returns immediately, and errors only if we are unable to send the request.
     /// The reducer will run asynchronously in the future,
     ///  and its status can be observed with the `callback`.
-    fn send_ui_event_then(
+    fn set_device_metrics_retention_then(
         &self,
-        target_device_id: Option<u64>,
-        kind: String,
-        payload_json: String,
+        device_id: u64,
+        retention_secs: u64,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
@@ -64,22 +60,20 @@ pub trait send_ui_event {
     ) -> __sdk::Result<()>;
 }
 
-impl send_ui_event for super::RemoteReducers {
-    fn send_ui_event_then(
+impl set_device_metrics_retention for super::RemoteReducers {
+    fn set_device_metrics_retention_then(
         &self,
-        target_device_id: Option<u64>,
-        kind: String,
-        payload_json: String,
+        device_id: u64,
+        retention_secs: u64,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
             + 'static,
     ) -> __sdk::Result<()> {
         self.imp.invoke_reducer_with_callback(
-            SendUiEventArgs {
-                target_device_id,
-                kind,
-                payload_json,
+            SetDeviceMetricsRetentionArgs {
+                device_id,
+                retention_secs,
             },
             callback,
         )

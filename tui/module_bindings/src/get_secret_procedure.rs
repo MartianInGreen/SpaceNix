@@ -30,10 +30,10 @@ pub trait get_secret {
         id: u64,
 
         __callback: impl FnOnce(
-            &super::ProcedureEventContext,
-            Result<Result<Option<SecretMetadata>, String>, __sdk::InternalError>,
-        ) + Send
-        + 'static,
+                &super::ProcedureEventContext,
+                Result<Result<Option<SecretMetadata>, String>, __sdk::InternalError>,
+            ) + Send
+            + 'static,
     );
 }
 
@@ -43,10 +43,10 @@ impl get_secret for super::RemoteProcedures {
         id: u64,
 
         __callback: impl FnOnce(
-            &super::ProcedureEventContext,
-            Result<Result<Option<SecretMetadata>, String>, __sdk::InternalError>,
-        ) + Send
-        + 'static,
+                &super::ProcedureEventContext,
+                Result<Result<Option<SecretMetadata>, String>, __sdk::InternalError>,
+            ) + Send
+            + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<Option<SecretMetadata>, String>>(

@@ -16,6 +16,7 @@
 //! - [`collect_once`] — a one-shot collector used by the TUI / CLI so the
 //!   local device can be exercised on demand (e.g. for `device status`).
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,7 +27,12 @@ use tokio::time::{Instant, interval_at};
 
 use crate::auth::conn::ConnState;
 use crate::bindings::*;
+use crate::config::Config;
 use crate::store::device::LocalDevice;
+
+/// Throttle for repeating the "metrics upload failed" diagnostic so we don't
+/// spam the log on a sticky failure (e.g. un-republished server schema).
+const REPORT_FAIL_LOG_THROTTLE: Duration = Duration::from_secs(5 * 60);
 
 pub const REPORT_INTERVAL: Duration = Duration::from_secs(30);
 const STARTUP_DELAY: Duration = Duration::from_secs(2);
@@ -38,35 +44,54 @@ pub struct MetricsSample {
     pub ram_total_bytes: u64,
     pub swap_used_bytes: u64,
     pub swap_total_bytes: u64,
+    /// Cumulative bytes received across all *physical* interfaces. Tunnels
+    /// (tailscale, wireguard, docker bridges, veth, …) are excluded so
+    /// tunneled traffic isn't counted twice.
     pub net_rx_bytes: u64,
+    /// Cumulative bytes transmitted across all *physical* interfaces.
     pub net_tx_bytes: u64,
-    pub storage_used_bytes: u64,
-    pub storage_total_bytes: u64,
+    /// Instantaneous receive rate in bytes/sec, derived from the delta
+    /// between this sample and the previous one. `0` for the first sample.
+    pub net_rx_bps: f64,
+    /// Instantaneous transmit rate in bytes/sec. `0` for the first sample.
+    pub net_tx_bps: f64,
+    pub storage_sync_root_used_bytes: u64,
+    pub storage_sync_root_total_bytes: u64,
+    pub storage_system_used_bytes: u64,
+    pub storage_system_total_bytes: u64,
+    pub sync_root_path: String,
 }
 
 pub struct MetricsCollector {
     system: System,
     disks: Disks,
     networks: Networks,
+    sync_root: Option<std::path::PathBuf>,
     last_sample: Option<MetricsSample>,
+    last_refresh: Option<Instant>,
 }
 
 impl MetricsCollector {
-    pub fn new() -> Self {
+    pub fn new(sync_root: Option<std::path::PathBuf>) -> Self {
         let mut system = System::new();
-        // First refresh only seeds the baseline; CPU stats need two passes
-        // before `global_cpu_usage()` returns a real number.
-        system.refresh_cpu_usage();
-        system.refresh_memory();
         let mut disks = Disks::new_with_refreshed_list();
         let _ = disks.refresh();
         let mut networks = Networks::new_with_refreshed_list();
         let _ = networks.refresh();
+        // Seed the CPU counters so the *next* refresh yields a real
+        // `global_cpu_usage()` value. sysinfo computes the per-CPU
+        // percentage from the delta between two snapshots, so the
+        // very first call returns 0 and the second call returns the
+        // value over whatever time elapsed between them.
+        system.refresh_cpu_usage();
+        system.refresh_memory();
         Self {
             system,
             disks,
             networks,
+            sync_root,
             last_sample: None,
+            last_refresh: None,
         }
     }
 
@@ -85,12 +110,20 @@ impl MetricsCollector {
 
         let mut net_rx: u64 = 0;
         let mut net_tx: u64 = 0;
-        for (iface_name, data) in &self.networks {
-            if iface_name == "lo" || iface_name.starts_with("lo:") {
-                continue;
+        // sysinfo's `Networks` is a `HashMap<String, NetworkData>`.
+        // Iterate by `&str` so we can pass a borrowed name to
+        // `is_virtual_interface` without an extra allocation.
+        let names: Vec<&str> = self
+            .networks
+            .keys()
+            .map(|s| s.as_str())
+            .filter(|name| !is_virtual_interface(name))
+            .collect();
+        for name in names {
+            if let Some(data) = self.networks.get(name) {
+                net_rx = net_rx.saturating_add(data.total_received());
+                net_tx = net_tx.saturating_add(data.total_transmitted());
             }
-            net_rx = net_rx.saturating_add(data.total_received());
-            net_tx = net_tx.saturating_add(data.total_transmitted());
         }
         // sysinfo's cumulative counters reset on interface bounce, so guard
         // against the "monotonicity" assumption the server depends on.
@@ -99,7 +132,31 @@ impl MetricsCollector {
             net_tx = net_tx.max(prev.net_tx_bytes);
         }
 
-        let (storage_used, storage_total) = primary_disk_usage(&self.disks);
+        // Compute instantaneous bytes/sec from the delta over the elapsed
+        // wall-clock time. The first sample has no prior, so we report 0
+        // — the UI shows "0 B/s" until the second tick lands.
+        let now = Instant::now();
+        let (net_rx_bps, net_tx_bps) = match (self.last_refresh, self.last_sample.as_ref()) {
+            (Some(prev_t), Some(prev_s))
+                if prev_t != now =>
+            {
+                let secs = now.duration_since(prev_t).as_secs_f64().max(0.001);
+                let rx_delta = net_rx.saturating_sub(prev_s.net_rx_bytes) as f64;
+                let tx_delta = net_tx.saturating_sub(prev_s.net_tx_bytes) as f64;
+                (rx_delta / secs, tx_delta / secs)
+            }
+            _ => (0.0, 0.0),
+        };
+        self.last_refresh = Some(now);
+
+        let sync_root_path = self
+            .sync_root
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let (sync_used, sync_total) =
+            disk_usage_for_path(&self.disks, self.sync_root.as_deref());
+        let (sys_used, sys_total) = primary_disk_usage(&self.disks);
         let sample = MetricsSample {
             cpu_percent,
             ram_used_bytes,
@@ -108,8 +165,13 @@ impl MetricsCollector {
             swap_total_bytes,
             net_rx_bytes: net_rx,
             net_tx_bytes: net_tx,
-            storage_used_bytes: storage_used,
-            storage_total_bytes: storage_total,
+            net_rx_bps,
+            net_tx_bps,
+            storage_sync_root_used_bytes: sync_used,
+            storage_sync_root_total_bytes: sync_total,
+            storage_system_used_bytes: sys_used,
+            storage_system_total_bytes: sys_total,
+            sync_root_path,
         };
         self.last_sample = Some(sample.clone());
         sample
@@ -123,10 +185,94 @@ impl MetricsCollector {
 
 impl Default for MetricsCollector {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
+/// True for interfaces whose bytes also appear on a *physical* interface
+/// (tunnels, bridges, virtual Ethernet, etc). Counting these alongside
+/// `eth0` / `wlan0` double-counts every packet that travels through them.
+///
+/// The denylist covers the names we see in practice on Linux + macOS:
+/// loopback, TUN/TAP, WireGuard, Tailscale, Docker bridge + veth, KVM /
+/// virtio bridges, VPN/overlay (awdl, llw, ipv6 tunnels), generic
+/// virtual Ethernet (veth*, vnet*, macvlan/tap), and the kernel
+/// `bridge` master. Add more here if your platform uses a different
+/// naming convention.
+fn is_virtual_interface(name: &str) -> bool {
+    if name == "lo" {
+        return true;
+    }
+    const PREFIXES: &[&str] = &[
+        "lo",
+        "tun",
+        "tap",
+        "wg",
+        "tailscale",
+        "docker",
+        "br-",
+        "veth",
+        "virbr",
+        "vnet",
+        "awdl",
+        "llw",
+        "bridge",
+        "ipv6tnl",
+        "sit",
+        "ip6",
+        "macvtap",
+        "macvlan",
+        "vxlan",
+        "geneve",
+        "gretap",
+        "erspan",
+        "tunl",
+    ];
+    PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+/// Storage stats for the disk that hosts `path`, if any. Falls back to the
+/// largest non-removable disk so we never report zeros when the path doesn't
+/// exist yet (e.g. before the first sync).
+fn disk_usage_for_path(disks: &Disks, path: Option<&Path>) -> (u64, u64) {
+    if let Some(path) = path {
+        if let Some(stats) = disk_for_path(disks, path) {
+            return stats;
+        }
+    }
+    primary_disk_usage(disks)
+}
+
+fn disk_for_path(disks: &Disks, path: &Path) -> Option<(u64, u64)> {
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut best_len: usize = 0;
+    let mut best: Option<(u64, u64)> = None;
+    for disk in disks {
+        if disk.is_removable() {
+            continue;
+        }
+        let mount = disk.mount_point();
+        let mount_canon = std::fs::canonicalize(mount).unwrap_or_else(|_| mount.to_path_buf());
+        if !path_within(&target, &mount_canon) {
+            continue;
+        }
+        let mount_len = mount_canon.as_os_str().len();
+        if mount_len >= best_len {
+            best_len = mount_len;
+            let total = disk.total_space();
+            let used = total.saturating_sub(disk.available_space());
+            best = Some((used, total));
+        }
+    }
+    best
+}
+
+fn path_within(path: &Path, root: &Path) -> bool {
+    path == root || path.starts_with(root)
+}
+
+/// Storage stats for the largest non-removable disk on the system. This is
+/// the "system disk" view — independent of where `sync_root` happens to live.
 fn primary_disk_usage(disks: &Disks) -> (u64, u64) {
     let mut best: Option<(u64, u64)> = None;
     for disk in disks {
@@ -152,8 +298,11 @@ fn sample_to_report(sample: &MetricsSample) -> DeviceMetricsReport {
         swap_total_bytes: sample.swap_total_bytes,
         net_rx_bytes: sample.net_rx_bytes,
         net_tx_bytes: sample.net_tx_bytes,
-        storage_used_bytes: sample.storage_used_bytes,
-        storage_total_bytes: sample.storage_total_bytes,
+        storage_sync_root_used_bytes: sample.storage_sync_root_used_bytes,
+        storage_sync_root_total_bytes: sample.storage_sync_root_total_bytes,
+        storage_system_used_bytes: sample.storage_system_used_bytes,
+        storage_system_total_bytes: sample.storage_system_total_bytes,
+        sync_root_path: sample.sync_root_path.clone(),
     }
 }
 
@@ -178,11 +327,20 @@ async fn report_sample(
     }
 }
 
-pub async fn collect_once(state: &ConnState, device_id: u64) -> Result<MetricsSample> {
-    // sysinfo needs a second refresh to compute CPU usage. Do the seeding
-    // refresh on a blocking thread, sleep, then take the real sample.
-    let sample = tokio::task::spawn_blocking(|| -> Result<MetricsSample> {
-        let mut collector = MetricsCollector::new();
+pub async fn collect_once(
+    config: &Config,
+    state: &ConnState,
+    device_id: u64,
+) -> Result<MetricsSample> {
+    // Two refreshes with a 500ms gap so sysinfo's CPU usage is real,
+    // not a process-startup artifact. Run on a blocking thread because
+    // sysinfo walks /proc and we don't want it on a tokio worker.
+    let sync_root = Some(config.sync_root.clone());
+    let sample = tokio::task::spawn_blocking(move || -> Result<MetricsSample> {
+        let mut collector = MetricsCollector::new(sync_root);
+        // First refresh seeds the CPU counters; second one (after a
+        // short sleep) yields a meaningful `global_cpu_usage()`.
+        let _ = collector.refresh();
         std::thread::sleep(Duration::from_millis(500));
         Ok(collector.refresh())
     })
@@ -196,6 +354,7 @@ pub async fn collect_once(state: &ConnState, device_id: u64) -> Result<MetricsSa
 /// Long-lived background task: keeps a metrics collector ticking and pushes
 /// samples to the server. Cancels itself when `cancel` resolves.
 pub async fn run_reporter(
+    config: Arc<Config>,
     state: Arc<ConnState>,
     local: LocalDevice,
     cancel: oneshot::Receiver<()>,
@@ -224,11 +383,44 @@ pub async fn run_reporter(
         );
     }
 
+    // Build a single collector that lives for the whole reporter. A
+    // fresh `MetricsCollector` per tick is the bug behind the "CPU stuck
+    // at 13.2%" symptom: sysinfo needs two CPU-counter refreshes
+    // separated by real wall-clock time, and a brand-new `System` only
+    // has its first refresh in its history — so on the *next* tick the
+    // computed percentage is dominated by process-startup deltas.
+    //
+    // Wrap it in a `Mutex` so we can hand it briefly to a blocking
+    // thread (the refresh walks /proc, which we don't want to do on a
+    // tokio worker) without juggling moves back and forth.
+    let collector = std::sync::Arc::new(std::sync::Mutex::new(
+        MetricsCollector::new(Some(config.sync_root.clone())),
+    ));
+
+    // Warm-up pass: a second refresh ~500ms after construction makes
+    // `global_cpu_usage()` return a meaningful percentage on the first
+    // *published* sample. We then reset the per-tick delta state so
+    // the warmup doesn't leak into the first real sample.
+    let warmup_collector = std::sync::Arc::clone(&collector);
+    tokio::task::spawn_blocking(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        if let Ok(mut c) = warmup_collector.lock() {
+            let _ = c.refresh();
+        }
+    })
+    .await
+    .ok();
+    *collector.lock().expect("collector mutex poisoned") =
+        MetricsCollector::new(Some(config.sync_root.clone()));
+
     let start = Instant::now() + STARTUP_DELAY;
     let mut ticker = interval_at(start, REPORT_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     tokio::pin!(cancel);
+
+    let mut last_fail_log: Option<Instant> = None;
+    let mut last_fail_msg: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -238,9 +430,10 @@ pub async fn run_reporter(
             }
             _ = ticker.tick() => {
                 let device_id = local.id;
-                let sample = tokio::task::spawn_blocking({
-                    let mut c = MetricsCollector::new();
-                    move || c.refresh()
+                let collector = std::sync::Arc::clone(&collector);
+                let sample = tokio::task::spawn_blocking(move || {
+                    let mut c = collector.lock().expect("collector mutex poisoned");
+                    c.refresh()
                 })
                 .await;
                 let sample = match sample {
@@ -251,15 +444,48 @@ pub async fn run_reporter(
                     }
                 };
                 let report = sample_to_report(&sample);
-                if let Err(err) = report_sample(&state, device_id, report).await {
-                    tracing::warn!(?err, "failed to push device metrics");
-                } else {
-                    tracing::debug!(
-                        device_id,
-                        cpu = sample.cpu_percent,
-                        ram_used = sample.ram_used_bytes,
-                        "metrics reported"
-                    );
+                match report_sample(&state, device_id, report).await {
+                    Ok(()) => {
+                        tracing::debug!(
+                            device_id,
+                            cpu = sample.cpu_percent,
+                            ram_used = sample.ram_used_bytes,
+                            "metrics reported"
+                        );
+                    }
+                    Err(err) => {
+                        let msg = format!("{err:#}");
+                        let now = Instant::now();
+                        let should_log = match last_fail_log {
+                            None => true,
+                            Some(prev)
+                                if now.duration_since(prev) >= REPORT_FAIL_LOG_THROTTLE =>
+                            {
+                                true
+                            }
+                            Some(_) => last_fail_msg.as_deref() != Some(&msg),
+                        };
+                        if should_log {
+                            let module = config.stdb_module.as_str();
+                            tracing::error!(
+                                device_id,
+                                error = %msg,
+                                "failed to push device metrics — this usually means the \
+                                 SpacetimeDB module on the server is out of date with the \
+                                 client. Run `spacetime publish {module} --yes` and restart \
+                                 the service.",
+                                module = module,
+                            );
+                            last_fail_log = Some(now);
+                            last_fail_msg = Some(msg);
+                        } else {
+                            tracing::debug!(
+                                device_id,
+                                error = %msg,
+                                "failed to push device metrics (throttled)"
+                            );
+                        }
+                    }
                 }
             }
         }

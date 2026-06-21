@@ -51,6 +51,7 @@ import ReportDeviceMetricsReducer from "./report_device_metrics_reducer";
 import RevokeApiKeyReducer from "./revoke_api_key_reducer";
 import SendUiEventReducer from "./send_ui_event_reducer";
 import SetDeviceHostnameReducer from "./set_device_hostname_reducer";
+import SetDeviceMetricsRetentionReducer from "./set_device_metrics_retention_reducer";
 import SetSecretReducer from "./set_secret_reducer";
 import SetSecretDevicesReducer from "./set_secret_devices_reducer";
 import SetSecretPermissionsReducer from "./set_secret_permissions_reducer";
@@ -217,6 +218,7 @@ const reducersSchema = __reducers(
   __reducerSchema("revoke_api_key", RevokeApiKeyReducer),
   __reducerSchema("send_ui_event", SendUiEventReducer),
   __reducerSchema("set_device_hostname", SetDeviceHostnameReducer),
+  __reducerSchema("set_device_metrics_retention", SetDeviceMetricsRetentionReducer),
   __reducerSchema("set_secret", SetSecretReducer),
   __reducerSchema("set_secret_devices", SetSecretDevicesReducer),
   __reducerSchema("set_secret_permissions", SetSecretPermissionsReducer),

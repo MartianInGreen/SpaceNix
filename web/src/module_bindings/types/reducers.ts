@@ -23,6 +23,7 @@ import ReportDeviceMetricsReducer from "../report_device_metrics_reducer";
 import RevokeApiKeyReducer from "../revoke_api_key_reducer";
 import SendUiEventReducer from "../send_ui_event_reducer";
 import SetDeviceHostnameReducer from "../set_device_hostname_reducer";
+import SetDeviceMetricsRetentionReducer from "../set_device_metrics_retention_reducer";
 import SetSecretReducer from "../set_secret_reducer";
 import SetSecretDevicesReducer from "../set_secret_devices_reducer";
 import SetSecretPermissionsReducer from "../set_secret_permissions_reducer";
@@ -62,6 +63,7 @@ export type ReportDeviceMetricsParams = __Infer<typeof ReportDeviceMetricsReduce
 export type RevokeApiKeyParams = __Infer<typeof RevokeApiKeyReducer>;
 export type SendUiEventParams = __Infer<typeof SendUiEventReducer>;
 export type SetDeviceHostnameParams = __Infer<typeof SetDeviceHostnameReducer>;
+export type SetDeviceMetricsRetentionParams = __Infer<typeof SetDeviceMetricsRetentionReducer>;
 export type SetSecretParams = __Infer<typeof SetSecretReducer>;
 export type SetSecretDevicesParams = __Infer<typeof SetSecretDevicesReducer>;
 export type SetSecretPermissionsParams = __Infer<typeof SetSecretPermissionsReducer>;

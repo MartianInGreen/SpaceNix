@@ -14,8 +14,11 @@ pub struct DeviceMetricsReport {
     pub swap_total_bytes: u64,
     pub net_rx_bytes: u64,
     pub net_tx_bytes: u64,
-    pub storage_used_bytes: u64,
-    pub storage_total_bytes: u64,
+    pub storage_sync_root_used_bytes: u64,
+    pub storage_sync_root_total_bytes: u64,
+    pub storage_system_used_bytes: u64,
+    pub storage_system_total_bytes: u64,
+    pub sync_root_path: String,
 }
 
 impl __sdk::InModule for DeviceMetricsReport {

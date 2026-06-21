@@ -30,10 +30,10 @@ pub trait search_files {
         query: String,
 
         __callback: impl FnOnce(
-            &super::ProcedureEventContext,
-            Result<Result<Vec<FileMetadata>, String>, __sdk::InternalError>,
-        ) + Send
-        + 'static,
+                &super::ProcedureEventContext,
+                Result<Result<Vec<FileMetadata>, String>, __sdk::InternalError>,
+            ) + Send
+            + 'static,
     );
 }
 
@@ -43,10 +43,10 @@ impl search_files for super::RemoteProcedures {
         query: String,
 
         __callback: impl FnOnce(
-            &super::ProcedureEventContext,
-            Result<Result<Vec<FileMetadata>, String>, __sdk::InternalError>,
-        ) + Send
-        + 'static,
+                &super::ProcedureEventContext,
+                Result<Result<Vec<FileMetadata>, String>, __sdk::InternalError>,
+            ) + Send
+            + 'static,
     ) {
         self.imp
             .invoke_procedure_with_callback::<_, Result<Vec<FileMetadata>, String>>(

@@ -27,6 +27,26 @@ pub mod formatting {
             format!("{:.1} {}", value, UNITS[unit])
         }
     }
+
+    /// Format a bytes-per-second value with the largest unit that keeps
+    /// the number ≥ 1 (e.g. `1.4 KiB/s`, `38 B/s`).
+    pub fn bytes_per_sec(bps: f64) -> String {
+        if !bps.is_finite() || bps <= 0.0 {
+            return "0 B/s".to_string();
+        }
+        const UNITS: &[&str] = &["B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s"];
+        let mut value = bps;
+        let mut unit = 0;
+        while value >= 1024.0 && unit < UNITS.len() - 1 {
+            value /= 1024.0;
+            unit += 1;
+        }
+        if unit == 0 {
+            format!("{} {}", bps as u64, UNITS[0])
+        } else {
+            format!("{:.1} {}", value, UNITS[unit])
+        }
+    }
 }
 
 #[allow(dead_code)]

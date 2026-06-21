@@ -17,8 +17,11 @@ pub struct DeviceMetricSample {
     pub swap_total_bytes: u64,
     pub net_rx_bytes: u64,
     pub net_tx_bytes: u64,
-    pub storage_used_bytes: u64,
-    pub storage_total_bytes: u64,
+    pub storage_sync_root_used_bytes: u64,
+    pub storage_sync_root_total_bytes: u64,
+    pub storage_system_used_bytes: u64,
+    pub storage_system_total_bytes: u64,
+    pub sync_root_path: String,
 }
 
 impl __sdk::InModule for DeviceMetricSample {
@@ -39,8 +42,11 @@ pub struct DeviceMetricSampleCols {
     pub swap_total_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
     pub net_rx_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
     pub net_tx_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
-    pub storage_used_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
-    pub storage_total_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
+    pub storage_sync_root_used_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
+    pub storage_sync_root_total_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
+    pub storage_system_used_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
+    pub storage_system_total_bytes: __sdk::__query_builder::Col<DeviceMetricSample, u64>,
+    pub sync_root_path: __sdk::__query_builder::Col<DeviceMetricSample, String>,
 }
 
 impl __sdk::__query_builder::HasCols for DeviceMetricSample {
@@ -57,11 +63,23 @@ impl __sdk::__query_builder::HasCols for DeviceMetricSample {
             swap_total_bytes: __sdk::__query_builder::Col::new(table_name, "swap_total_bytes"),
             net_rx_bytes: __sdk::__query_builder::Col::new(table_name, "net_rx_bytes"),
             net_tx_bytes: __sdk::__query_builder::Col::new(table_name, "net_tx_bytes"),
-            storage_used_bytes: __sdk::__query_builder::Col::new(table_name, "storage_used_bytes"),
-            storage_total_bytes: __sdk::__query_builder::Col::new(
+            storage_sync_root_used_bytes: __sdk::__query_builder::Col::new(
                 table_name,
-                "storage_total_bytes",
+                "storage_sync_root_used_bytes",
             ),
+            storage_sync_root_total_bytes: __sdk::__query_builder::Col::new(
+                table_name,
+                "storage_sync_root_total_bytes",
+            ),
+            storage_system_used_bytes: __sdk::__query_builder::Col::new(
+                table_name,
+                "storage_system_used_bytes",
+            ),
+            storage_system_total_bytes: __sdk::__query_builder::Col::new(
+                table_name,
+                "storage_system_total_bytes",
+            ),
+            sync_root_path: __sdk::__query_builder::Col::new(table_name, "sync_root_path"),
         }
     }
 }

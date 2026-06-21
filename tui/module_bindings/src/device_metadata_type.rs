@@ -13,6 +13,7 @@ pub struct DeviceMetadata {
     pub hostname: Option<String>,
     pub created_at: __sdk::Timestamp,
     pub last_seen_at: Option<__sdk::Timestamp>,
+    pub metrics_retention: Option<__sdk::TimeDuration>,
 }
 
 impl __sdk::InModule for DeviceMetadata {
@@ -29,6 +30,7 @@ pub struct DeviceMetadataCols {
     pub hostname: __sdk::__query_builder::Col<DeviceMetadata, Option<String>>,
     pub created_at: __sdk::__query_builder::Col<DeviceMetadata, __sdk::Timestamp>,
     pub last_seen_at: __sdk::__query_builder::Col<DeviceMetadata, Option<__sdk::Timestamp>>,
+    pub metrics_retention: __sdk::__query_builder::Col<DeviceMetadata, Option<__sdk::TimeDuration>>,
 }
 
 impl __sdk::__query_builder::HasCols for DeviceMetadata {
@@ -41,6 +43,7 @@ impl __sdk::__query_builder::HasCols for DeviceMetadata {
             hostname: __sdk::__query_builder::Col::new(table_name, "hostname"),
             created_at: __sdk::__query_builder::Col::new(table_name, "created_at"),
             last_seen_at: __sdk::__query_builder::Col::new(table_name, "last_seen_at"),
+            metrics_retention: __sdk::__query_builder::Col::new(table_name, "metrics_retention"),
         }
     }
 }

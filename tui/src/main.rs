@@ -19,6 +19,8 @@ mod store;
 mod tui;
 mod util;
 
+use crate::store::service_lock::ServiceLock;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "spacenix",
@@ -122,6 +124,87 @@ fn run() -> Result<ExitCode> {
     )?;
     let config = Arc::new(config);
 
+    // For `service start` we have to fork *before* building the tokio
+    // runtime. Building a new runtime from a forked process is unsafe
+    // (the parent's multi-thread runtime holds worker threads that
+    // don't exist in the child, and tokio explicitly panics on nested
+    // runtimes). So: if this is a non-foreground start, do the fork
+    // here on a thread that has never touched a runtime, and only the
+    // child falls through to build its own runtime.
+    if let Command::Service(service::ServiceCommand::Start { port, foreground }) = &cli.command {
+        let port = *port;
+        let foreground = *foreground;
+
+        // Already-running check. A stale lock (the recorded pid is no
+        // longer alive) is treated as "not running" so a crash loop
+        // doesn't permanently wedge the service.
+        if let Some(existing) = ServiceLock::load(&config.service_lock_file())? {
+            if service::pid_alive(existing.pid) {
+                eprintln!(
+                    "service is already running (pid {}, port {})",
+                    existing.pid, existing.port
+                );
+                return Ok(ExitCode::from(0));
+            }
+            eprintln!(
+                "removing stale service lock (pid {} is no longer running)",
+                existing.pid
+            );
+            let _ = std::fs::remove_file(&config.service_lock_file());
+        }
+
+        if !foreground {
+            // Run the fork on a fresh OS thread so we're not on a
+            // tokio worker thread. We don't have a runtime yet, but
+            // being explicit costs nothing.
+            return Ok(std::thread::Builder::new()
+                .name("spacenix-svc-fork".into())
+                .spawn(move || -> Result<ExitCode> {
+                    match service::daemonize(&config) {
+                        service::DaemonizeOutcome::Parent(child_pid) => {
+                            let port = ServiceLock::load(&config.service_lock_file())
+                                .ok()
+                                .flatten()
+                                .map(|l| l.port.to_string())
+                                .unwrap_or_else(|| "?".to_string());
+                            println!("spacenix service listening on http://127.0.0.1:{port}");
+                            println!("pid: {child_pid}");
+                            println!("log:  {}/service.log", config.config_dir.display());
+                            println!("stop: `spacenix service stop`");
+                            Ok(ExitCode::from(0))
+                        }
+                        service::DaemonizeOutcome::NotSupported => {
+                            eprintln!(
+                                "warning: detaching is not supported on this platform; \
+                                 falling back to foreground mode"
+                            );
+                            let rt = tokio::runtime::Builder::new_multi_thread()
+                                .enable_all()
+                                .build()
+                                .context("building tokio runtime")?;
+                            rt.block_on(service::run_service(config, port))
+                        }
+                        service::DaemonizeOutcome::Child => {
+                            // Grandchild. Build a fresh multi-threaded
+                            // runtime in this process — the SpacetimeDB
+                            // SDK requires `block_in_place`, which is
+                            // only available on a multi-thread runtime.
+                            // It's safe to build one here because no
+                            // runtime was alive at fork time.
+                            let rt = tokio::runtime::Builder::new_multi_thread()
+                                .enable_all()
+                                .build()
+                                .context("building tokio runtime")?;
+                            rt.block_on(service::run_service(config, port))
+                        }
+                    }
+                })
+                .expect("spawning service fork thread")
+                .join()
+                .expect("service fork thread panicked")?);
+        }
+    }
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -140,7 +223,7 @@ fn run() -> Result<ExitCode> {
             Command::Account(cmd) => cli::account::run(config, cmd).await,
             Command::Token(cmd) => cli::token::run(config, cmd).await,
             Command::Sync(cmd) => cli::sync::run(config, cmd).await,
-            Command::Service(cmd) => service::run(config, cmd).await,
+            Command::Service(cmd) => service::run(config, cmd),
             Command::Config => {
                 println!("{:#?}", *config);
                 Ok(ExitCode::from(0))
