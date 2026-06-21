@@ -5,7 +5,7 @@ import { useProcedure, useReducer, useTable } from "spacetimedb/react";
 import { procedures, reducers, tables } from "@/module_bindings";
 import type { FileMetadata, ReplaceTicket } from "@/module_bindings/types";
 import { reportError, reportSuccess } from "@/lib/toast";
-import { useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
 import { unwrap } from "@/lib/stdb";
 import {
   decryptFileContent,

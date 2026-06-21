@@ -810,12 +810,20 @@ function KeyDialog({
                 ) : null}
               </TabsContent>
               <TabsContent value="devices" className="mt-3 space-y-2">
-                <Label>Devices</Label>
+                <div className="space-y-1">
+                  <Label>Device scope</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to allow every device to use this SSH key. Select devices to restrict it.
+                  </p>
+                </div>
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </TabsContent>
               <TabsContent value="tags" className="mt-3 space-y-2">
-                <Label>Tags</Label>
-                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} />
+                <div className="space-y-1">
+                  <Label>Organization tags</Label>
+                  <p className="text-xs text-muted-foreground">Tags are labels for grouping and filtering. They do not grant access.</p>
+                </div>
+                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} emptyLabel="No tags added." />
               </TabsContent>
             </Tabs>
           ) : (
@@ -842,12 +850,20 @@ function KeyDialog({
               </div>
               <Separator />
               <div className="space-y-2">
-                <Label>Devices (optional)</Label>
+                <div className="space-y-1">
+                  <Label>Device scope</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to allow every device to use this SSH key. Select devices to restrict it.
+                  </p>
+                </div>
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </div>
               <div className="space-y-2">
-                <Label>Tags (optional)</Label>
-                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} />
+                <div className="space-y-1">
+                  <Label>Organization tags</Label>
+                  <p className="text-xs text-muted-foreground">Tags are labels for grouping and filtering. They do not grant access.</p>
+                </div>
+                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} emptyLabel="No tags added." />
               </div>
             </div>
           )}
@@ -1211,12 +1227,20 @@ function EndpointDialog({
                 </div>
               </TabsContent>
               <TabsContent value="devices" className="mt-3 space-y-2">
-                <Label>Devices</Label>
+                <div className="space-y-1">
+                  <Label>Device scope</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to show this endpoint to all devices. Select devices to restrict visibility.
+                  </p>
+                </div>
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </TabsContent>
               <TabsContent value="tags" className="mt-3 space-y-2">
-                <Label>Tags</Label>
-                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} />
+                <div className="space-y-1">
+                  <Label>Organization tags</Label>
+                  <p className="text-xs text-muted-foreground">Tags are labels for grouping and filtering. They do not grant access.</p>
+                </div>
+                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} emptyLabel="No tags added." />
               </TabsContent>
             </Tabs>
           ) : (
@@ -1280,12 +1304,20 @@ function EndpointDialog({
               </div>
               <Separator />
               <div className="space-y-2">
-                <Label>Devices (optional)</Label>
+                <div className="space-y-1">
+                  <Label>Device scope</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to show this endpoint to all devices. Select devices to restrict visibility.
+                  </p>
+                </div>
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </div>
               <div className="space-y-2">
-                <Label>Tags (optional)</Label>
-                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} />
+                <div className="space-y-1">
+                  <Label>Organization tags</Label>
+                  <p className="text-xs text-muted-foreground">Tags are labels for grouping and filtering. They do not grant access.</p>
+                </div>
+                <TagInput values={tags} onChange={setTags} pattern={TAG_PATTERN} emptyLabel="No tags added." />
               </div>
             </div>
           )}

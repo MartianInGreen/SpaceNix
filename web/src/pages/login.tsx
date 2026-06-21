@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Cloud, Loader2 } from "lucide-react";
+import { Cloud, Loader2, Terminal } from "lucide-react";
 
 import { reportError } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
+import { readPendingCallback } from "@/lib/stdb";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -27,6 +28,16 @@ export function LoginPage() {
   const [displayName, setDisplayName] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [pendingCallback] = React.useState<string | null>(() => {
+    const cb = readPendingCallback();
+    if (!cb) return null;
+    try {
+      const url = new URL(cb.url);
+      return `${url.hostname}:${url.port || "(default port)"}`;
+    } catch {
+      return cb.url;
+    }
+  });
 
   const isSignUp = mode === "sign-up";
 
@@ -79,6 +90,22 @@ export function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {pendingCallback ? (
+            <div
+              role="status"
+              className="mb-4 flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-foreground"
+            >
+              <Terminal className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div className="space-y-0.5">
+                <p className="font-medium">The SpaceNix TUI is waiting for you.</p>
+                <p className="text-muted-foreground">
+                  After you sign in, this browser will redirect back to{" "}
+                  <code className="font-mono">{pendingCallback}</code> with your
+                  connection token. You can close this tab once you're redirected.
+                </p>
+              </div>
+            </div>
+          ) : null}
           <form
             id="credentials-form"
             onSubmit={onSubmit}

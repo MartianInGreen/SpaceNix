@@ -132,7 +132,7 @@ export function identityHex(id: Identity | undefined): string {
     return id.toHexString();
   } catch {
     try {
-      return (id as any).toString();
+      return String(id);
     } catch {
       return "";
     }

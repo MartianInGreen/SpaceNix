@@ -484,10 +484,21 @@ function SecretDialog({
                 ) : null}
               </TabsContent>
               <TabsContent value="devices" className="mt-3">
+                <div className="mb-2 space-y-1">
+                  <Label>Device scope</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to make this secret available to all devices. Select devices to restrict where it can be used.
+                  </p>
+                </div>
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </TabsContent>
               <TabsContent value="perms" className="mt-3 space-y-2">
-                <Label>Permissions</Label>
+                <div className="space-y-1">
+                  <Label>Permission gate</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty for no permission gate. Add grants when a token must prove a matching permission before using this secret.
+                  </p>
+                </div>
                 <PermissionEditor
                   values={permissions}
                   onChange={setPermissions}
@@ -509,11 +520,21 @@ function SecretDialog({
               </div>
               <Separator />
               <div className="space-y-2">
-                <Label>Devices (optional)</Label>
+                <div className="space-y-1">
+                  <Label>Device scope</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to make this secret available to all devices. Select devices to restrict where it can be used.
+                  </p>
+                </div>
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </div>
               <div className="space-y-2">
-                <Label>Permissions (optional)</Label>
+                <div className="space-y-1">
+                  <Label>Permission gate</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty for no permission gate. Add grants when a token must prove a matching permission before using this secret.
+                  </p>
+                </div>
                 <PermissionEditor
                   values={permissions}
                   onChange={setPermissions}

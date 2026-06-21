@@ -22,17 +22,19 @@ import type { FileMetadata, ReplaceTicket, UploadTicket } from "@/module_binding
 import { Timestamp } from "spacetimedb";
 import { unwrap } from "@/lib/stdb";
 import { decryptFileContent, encryptFileContent } from "@/lib/file-crypto";
-import { useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth-context";
 import { cn, formatBytes } from "@/lib/utils";
 import { reportError, reportSuccess } from "@/lib/toast";
 import { PageHeader, EmptyState, ConfirmDelete, Spinner } from "@/components/common";
 import {
   FileTreeView,
+} from "@/components/file-tree";
+import {
   buildTree,
   findByPath,
   joinPath,
   type TreeNode,
-} from "@/components/file-tree";
+} from "@/components/file-tree-utils";
 import { FileRow } from "@/components/file-row";
 import { FolderPicker } from "@/components/folder-picker";
 import { Button } from "@/components/ui/button";
@@ -436,7 +438,6 @@ export function FilesPage() {
   const isEmpty = rows.length === 0;
   const currentIsEmpty =
     !isEmpty && directories.length === 0 && filesHere.length === 0;
-  const hasSearch = search.trim().length > 0;
 
   return (
     <div

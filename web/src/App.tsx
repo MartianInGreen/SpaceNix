@@ -2,7 +2,7 @@ import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SpacetimeDBProvider } from "spacetimedb/react";
 import { Toaster } from "sonner";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import { DbConnection } from "@/module_bindings";
 import {
@@ -15,7 +15,8 @@ import {
   storePendingCallback,
   storeToken,
 } from "@/lib/stdb";
-import { AuthProvider, SessionKeyProvider, useAuth, useSessionKey } from "@/lib/auth";
+import { AuthProvider, SessionKeyProvider } from "@/lib/auth";
+import { useAuth, useSessionKey } from "@/lib/auth-context";
 import { AppShell } from "@/components/app-shell";
 import { LoginPage } from "@/pages/login";
 import { FilesPage } from "@/pages/files";
@@ -54,7 +55,50 @@ function ConnectionRoot() {
 }
 
 function Router() {
-  const { status, isAuthenticated, restoring, fileEncryptionKey, fileEncryptionError } = useAuth();
+  const { status, isAuthenticated, identityHex, restoring, fileEncryptionKey, fileEncryptionError } =
+    useAuth();
+
+  // Capture a `?callback=…` query param from the URL (set by the SpaceNix
+  // CLI / TUI when it spawns the browser) and stash it in sessionStorage so
+  // the redirect effect below can pick it up once auth completes.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const callback = params.get("callback");
+    if (callback) {
+      try {
+        const parsed = new URL(callback);
+        if (parsed.protocol === "http:" && parsed.hostname === "127.0.0.1") {
+          storePendingCallback({ url: callback });
+          // Strip the query string from the address bar so a refresh
+          // doesn't re-apply it.
+          params.delete("callback");
+          const next =
+            window.location.pathname +
+            (params.toString() ? `?${params.toString()}` : "") +
+            window.location.hash;
+          window.history.replaceState({}, "", next);
+        }
+      } catch {
+        // Ignore malformed callback URLs.
+      }
+    }
+  }, []);
+
+  // Once the user is fully signed in (and the connection token has landed
+  // in localStorage via `onConnect`), redirect the browser to the TUI's
+  // local callback URL so the CLI can pick the token up.
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+    const pending = readPendingCallback();
+    if (!pending) return;
+    const token = loadStoredToken();
+    if (!token) return;
+    const redirect = buildCallbackRedirectUrl(pending.url, token, identityHex);
+    clearPendingCallback();
+    // Replace instead of assign so the user doesn't have a confusing
+    // back-button history entry pointing at the callback URL.
+    window.location.replace(redirect);
+  }, [isAuthenticated, identityHex]);
 
   if (status === "connecting" || restoring) {
     return (
