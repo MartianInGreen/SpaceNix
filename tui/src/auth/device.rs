@@ -415,6 +415,7 @@ async fn create_ssh_endpoint(
             vec![device_id.to_string()],
             Vec::new(),
             true,
+            None,
             move |_ctx, res| {
                 let _ = tx.send(res);
             },

@@ -83,12 +83,14 @@ pub mod set_secret_value_reducer;
 pub mod set_ssh_endpoint_devices_reducer;
 pub mod set_ssh_endpoint_enabled_reducer;
 pub mod set_ssh_endpoint_reducer;
+pub mod set_ssh_endpoint_shell_reducer;
 pub mod set_ssh_endpoint_tags_reducer;
 pub mod set_ssh_key_devices_reducer;
 pub mod set_ssh_key_reducer;
 pub mod set_ssh_key_tags_reducer;
 pub mod set_ssh_key_value_reducer;
 pub mod set_ssh_relay_device_reducer;
+pub mod set_ssh_relay_device_url_reducer;
 pub mod sign_in_reducer;
 pub mod sign_out_reducer;
 pub mod sign_up_reducer;
@@ -190,12 +192,14 @@ pub use set_secret_value_reducer::set_secret_value;
 pub use set_ssh_endpoint_devices_reducer::set_ssh_endpoint_devices;
 pub use set_ssh_endpoint_enabled_reducer::set_ssh_endpoint_enabled;
 pub use set_ssh_endpoint_reducer::set_ssh_endpoint;
+pub use set_ssh_endpoint_shell_reducer::set_ssh_endpoint_shell;
 pub use set_ssh_endpoint_tags_reducer::set_ssh_endpoint_tags;
 pub use set_ssh_key_devices_reducer::set_ssh_key_devices;
 pub use set_ssh_key_reducer::set_ssh_key;
 pub use set_ssh_key_tags_reducer::set_ssh_key_tags;
 pub use set_ssh_key_value_reducer::set_ssh_key_value;
 pub use set_ssh_relay_device_reducer::set_ssh_relay_device;
+pub use set_ssh_relay_device_url_reducer::set_ssh_relay_device_url;
 pub use sign_in_reducer::sign_in;
 pub use sign_out_reducer::sign_out;
 pub use sign_up_reducer::sign_up;
@@ -352,6 +356,7 @@ pub enum Reducer {
         device_ids: Vec<String>,
         tags: Vec<String>,
         enabled: bool,
+        login_shell: Option<String>,
     },
     SetSshEndpointDevices {
         id: u64,
@@ -360,6 +365,10 @@ pub enum Reducer {
     SetSshEndpointEnabled {
         id: u64,
         enabled: bool,
+    },
+    SetSshEndpointShell {
+        id: u64,
+        shell: Option<String>,
     },
     SetSshEndpointTags {
         id: u64,
@@ -387,6 +396,9 @@ pub enum Reducer {
     },
     SetSshRelayDevice {
         device_id: u64,
+    },
+    SetSshRelayDeviceUrl {
+        url: String,
     },
     SignIn {
         email: String,
@@ -467,12 +479,14 @@ impl __sdk::Reducer for Reducer {
             Reducer::SetSshEndpoint { .. } => "set_ssh_endpoint",
             Reducer::SetSshEndpointDevices { .. } => "set_ssh_endpoint_devices",
             Reducer::SetSshEndpointEnabled { .. } => "set_ssh_endpoint_enabled",
+            Reducer::SetSshEndpointShell { .. } => "set_ssh_endpoint_shell",
             Reducer::SetSshEndpointTags { .. } => "set_ssh_endpoint_tags",
             Reducer::SetSshKey { .. } => "set_ssh_key",
             Reducer::SetSshKeyDevices { .. } => "set_ssh_key_devices",
             Reducer::SetSshKeyTags { .. } => "set_ssh_key_tags",
             Reducer::SetSshKeyValue { .. } => "set_ssh_key_value",
             Reducer::SetSshRelayDevice { .. } => "set_ssh_relay_device",
+            Reducer::SetSshRelayDeviceUrl { .. } => "set_ssh_relay_device_url",
             Reducer::SignIn { .. } => "sign_in",
             Reducer::SignOut => "sign_out",
             Reducer::SignUp { .. } => "sign_up",
@@ -676,6 +690,7 @@ impl __sdk::Reducer for Reducer {
                 device_ids,
                 tags,
                 enabled,
+                login_shell,
             } => __sats::bsatn::to_vec(&set_ssh_endpoint_reducer::SetSshEndpointArgs {
                 name: name.clone(),
                 host: host.clone(),
@@ -685,6 +700,7 @@ impl __sdk::Reducer for Reducer {
                 device_ids: device_ids.clone(),
                 tags: tags.clone(),
                 enabled: enabled.clone(),
+                login_shell: login_shell.clone(),
             }),
             Reducer::SetSshEndpointDevices { id, device_ids } => __sats::bsatn::to_vec(
                 &set_ssh_endpoint_devices_reducer::SetSshEndpointDevicesArgs {
@@ -698,6 +714,12 @@ impl __sdk::Reducer for Reducer {
                     enabled: enabled.clone(),
                 },
             ),
+            Reducer::SetSshEndpointShell { id, shell } => {
+                __sats::bsatn::to_vec(&set_ssh_endpoint_shell_reducer::SetSshEndpointShellArgs {
+                    id: id.clone(),
+                    shell: shell.clone(),
+                })
+            }
             Reducer::SetSshEndpointTags { id, tags } => {
                 __sats::bsatn::to_vec(&set_ssh_endpoint_tags_reducer::SetSshEndpointTagsArgs {
                     id: id.clone(),
@@ -743,6 +765,9 @@ impl __sdk::Reducer for Reducer {
                     device_id: device_id.clone(),
                 })
             }
+            Reducer::SetSshRelayDeviceUrl { url } => __sats::bsatn::to_vec(
+                &set_ssh_relay_device_url_reducer::SetSshRelayDeviceUrlArgs { url: url.clone() },
+            ),
             Reducer::SignIn { email, password } => {
                 __sats::bsatn::to_vec(&sign_in_reducer::SignInArgs {
                     email: email.clone(),

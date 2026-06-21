@@ -23,4 +23,5 @@ export default __t.row({
   enabled: __t.bool(),
   createdAt: __t.timestamp().name("created_at"),
   updatedAt: __t.timestamp().name("updated_at"),
+  loginShell: __t.option(__t.string()).name("login_shell"),
 });

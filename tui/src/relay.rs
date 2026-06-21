@@ -28,7 +28,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use bytes::Bytes;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use rand::RngCore;
 use spacetimedb_sdk::Timestamp;
 use spacetimedb_sdk::Table;
@@ -295,7 +295,12 @@ async fn run_bridge(
     let key_path = write_private_key(&config, &endpoint.name, &key.private_key)?;
     let _cleanup = PrivateKeyGuard::new(key_path.clone());
 
-    // Spawn ssh(1) in a pty.
+    // Spawn ssh(1) in a pty. We leave the local pty in a sane
+    // cooked/echo mode before ssh reads it. `ssh -tt` will set the
+    // local side to raw for us, but it first copies these termios
+    // modes to the remote pty. If we start raw/no-echo, the remote
+    // pty ends up raw/no-echo too and simple shells (or bash with a
+    // bad TERM) won't echo typed characters.
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -306,23 +311,41 @@ async fn run_bridge(
             pixel_height: 0,
         })
         .context("openpty")?;
-    // Wrap ssh in a shell that puts the pty into raw, no-echo mode
-    // before exec'ing ssh. The default pty termios is cooked/canonical
-    // with echo on, which makes backspace erase the previous line
-    // character and echoes every keystroke back to the master — the
-    // browser would see "ls" and a stream of garbage echo bytes
-    // rather than the clean keypress stream we want. `stty raw -echo`
-    // disables both: bytes pass through one-for-one in both
-    // directions.
-    let mut cmd = CommandBuilder::new("sh");
-    cmd.arg("-c");
-    cmd.arg(format!(
-        "stty raw -echo 2>/dev/null; exec ssh -i {key} -p {port} -l {user} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -tt {host}",
-        key = key_path.display(),
-        port = endpoint.port,
-        user = shell_escape(&endpoint.username),
-        host = shell_escape(&endpoint.host),
-    ));
+    if let Some(fd) = pair.master.as_raw_fd() {
+        set_sane_pty(fd).context("set sane pty termios")?;
+    }
+
+    let mut cmd = CommandBuilder::new("ssh");
+    cmd.env("TERM", "xterm");
+    cmd.arg("-i");
+    cmd.arg(key_path.as_os_str());
+    cmd.arg("-p");
+    cmd.arg(endpoint.port.to_string());
+    cmd.arg("-l");
+    cmd.arg(endpoint.username.as_str());
+    cmd.arg("-o");
+    cmd.arg("IdentitiesOnly=yes");
+    // First-use TOFU for the host key. The user has never SSH'd
+    // to this host from this machine before, so the prompt can't
+    // be answered by a human in a non-interactive pty. `accept-new`
+    // is the standard answer: trust on first use, refuse on key
+    // change (the latter is the security-relevant case).
+    cmd.arg("-o");
+    cmd.arg("StrictHostKeyChecking=accept-new");
+    cmd.arg("-tt");
+    cmd.arg(endpoint.host.as_str());
+    if let Some(shell) = endpoint.login_shell.as_deref() {
+        if !shell.is_empty() {
+            // Run a known-good interactive shell on the remote
+            // host. We pass it as a `ssh` command so the local ssh
+            // execs it on the far side; this overrides whatever
+            // `/etc/passwd` says and gives the user a way to
+            // guarantee they land in, say, `bash` rather than
+            // `fish` (which doesn't always behave well over plain
+            // ssh with no agent).
+            cmd.arg(shell);
+        }
+    }
     let mut child = pair.slave.spawn_command(cmd).context("spawn ssh")?;
     drop(pair.slave);
 
@@ -332,11 +355,12 @@ async fn run_bridge(
         .context("clone pty reader")?;
     let writer = pair.master.take_writer().context("take pty writer")?;
 
-    // WebSocket is a Stream + Sink. We don't have a clean split, so
-    // we share it through a Mutex: the read task locks it just
-    // long enough to pull the next message; the pump locks it just
-    // long enough to send.
-    let ws = Arc::new(tokio::sync::Mutex::new(socket));
+    // Split the WebSocket into its read and write halves so the input
+    // reader and the output pump can run concurrently. Holding a Mutex
+    // across `next().await` is what caused the previous "invisible until
+    // backspace" bug: the output pump couldn't send anything while the
+    // reader was waiting for a browser keystroke.
+    let (mut ws_sink, mut ws_stream) = socket.split();
 
     // pty -> websocket
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Bytes>();
@@ -383,14 +407,9 @@ async fn run_bridge(
         });
     });
 
-    let ws_for_read = Arc::clone(&ws);
     let mut read_task = tokio::spawn(async move {
         loop {
-            let msg_result = {
-                let mut s = ws_for_read.lock().await;
-                s.next().await
-            };
-            match msg_result {
+            match ws_stream.next().await {
                 Some(Ok(Message::Binary(data))) => {
                     if in_tx.send(Bytes::from(data)).is_err() {
                         break;
@@ -419,11 +438,7 @@ async fn run_bridge(
             chunk = out_rx.recv() => {
                 match chunk {
                     Some(bytes) => {
-                        let send_result = {
-                            let mut s = ws.lock().await;
-                            s.send(Message::Binary(bytes.to_vec())).await
-                        };
-                        if send_result.is_err() {
+                        if ws_sink.send(Message::Binary(bytes.to_vec())).await.is_err() {
                             break;
                         }
                     }
@@ -549,6 +564,39 @@ impl Drop for PrivateKeyGuard {
     }
 }
 
+/// Put a POSIX terminal fd into a sane cooked/echo mode. `ssh -tt`
+/// will read these flags and copy them to the remote pty, then set
+/// the local side to raw itself.
+#[cfg(unix)]
+fn set_sane_pty(fd: std::os::unix::io::RawFd) -> std::io::Result<()> {
+    let mut t: libc::termios = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
+    if unsafe { libc::tcgetattr(fd, &mut t) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    t.c_iflag |= libc::ICRNL;
+    t.c_iflag &= !(libc::IGNBRK
+        | libc::BRKINT
+        | libc::IGNPAR
+        | libc::PARMRK
+        | libc::INPCK
+        | libc::ISTRIP
+        | libc::INLCR
+        | libc::IGNCR
+        | libc::IXOFF);
+    t.c_oflag |= libc::OPOST | libc::ONLCR;
+    t.c_oflag &= !(libc::OCRNL | libc::ONOCR | libc::ONLRET | libc::OFILL | libc::OFDEL);
+    t.c_lflag |= libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ICANON | libc::ISIG | libc::IEXTEN;
+    t.c_lflag &= !(libc::ECHONL | libc::NOFLSH);
+    t.c_cflag |= libc::CS8 | libc::CREAD;
+    t.c_cflag &= !(libc::CSIZE | libc::PARENB | libc::PARODD | libc::CSTOPB);
+    t.c_cc[libc::VMIN] = 1;
+    t.c_cc[libc::VTIME] = 0;
+    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &t) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Constant-time byte slice comparison. Avoids leaking the token
 /// length or contents through a timing side-channel.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -564,19 +612,3 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 #[allow(dead_code)]
 fn _osstring_marker(_: OsString) {}
-
-/// Single-quote a string for use as one shell `argv` element.
-/// Escapes any embedded single quotes per POSIX.
-fn shell_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('\'');
-    for c in s.chars() {
-        if c == '\'' {
-            out.push_str("'\\''");
-        } else {
-            out.push(c);
-        }
-    }
-    out.push('\'');
-    out
-}

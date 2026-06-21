@@ -19,6 +19,7 @@ pub struct SshEndpoint {
     pub enabled: bool,
     pub created_at: __sdk::Timestamp,
     pub updated_at: __sdk::Timestamp,
+    pub login_shell: Option<String>,
 }
 
 impl __sdk::InModule for SshEndpoint {
@@ -41,6 +42,7 @@ pub struct SshEndpointCols {
     pub enabled: __sdk::__query_builder::Col<SshEndpoint, bool>,
     pub created_at: __sdk::__query_builder::Col<SshEndpoint, __sdk::Timestamp>,
     pub updated_at: __sdk::__query_builder::Col<SshEndpoint, __sdk::Timestamp>,
+    pub login_shell: __sdk::__query_builder::Col<SshEndpoint, Option<String>>,
 }
 
 impl __sdk::__query_builder::HasCols for SshEndpoint {
@@ -59,6 +61,7 @@ impl __sdk::__query_builder::HasCols for SshEndpoint {
             enabled: __sdk::__query_builder::Col::new(table_name, "enabled"),
             created_at: __sdk::__query_builder::Col::new(table_name, "created_at"),
             updated_at: __sdk::__query_builder::Col::new(table_name, "updated_at"),
+            login_shell: __sdk::__query_builder::Col::new(table_name, "login_shell"),
         }
     }
 }

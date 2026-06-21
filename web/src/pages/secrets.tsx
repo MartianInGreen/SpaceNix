@@ -17,7 +17,8 @@ import { unwrap } from "@/lib/stdb";
 import { cn, formatTimestamp } from "@/lib/utils";
 import { reportError, reportSuccess } from "@/lib/toast";
 import { PageHeader, EmptyState, ConfirmDelete, Spinner } from "@/components/common";
-import { PermissionChips, PermissionEditor, PermissionOverview } from "@/components/permission-editor";
+import { PermissionChips, PermissionOverview } from "@/components/permission-editor";
+import { SecretPermissionGate } from "@/components/secret-permission-gate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -493,17 +494,7 @@ function SecretDialog({
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </TabsContent>
               <TabsContent value="perms" className="mt-3 space-y-2">
-                <div className="space-y-1">
-                  <Label>Permission gate</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty for no permission gate. Add grants when a token must prove a matching permission before using this secret.
-                  </p>
-                </div>
-                <PermissionEditor
-                  values={permissions}
-                  onChange={setPermissions}
-                  emptyLabel="No permission gate. Any matching device scope can receive this secret."
-                />
+                <SecretPermissionGate values={permissions} onChange={setPermissions} />
               </TabsContent>
             </Tabs>
           ) : (
@@ -529,17 +520,7 @@ function SecretDialog({
                 <DevicePicker devices={devices} selected={deviceIds} onToggle={toggleDevice} deviceById={deviceById} />
               </div>
               <div className="space-y-2">
-                <div className="space-y-1">
-                  <Label>Permission gate</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty for no permission gate. Add grants when a token must prove a matching permission before using this secret.
-                  </p>
-                </div>
-                <PermissionEditor
-                  values={permissions}
-                  onChange={setPermissions}
-                  emptyLabel="No permission gate. Any matching device scope can receive this secret."
-                />
+                <SecretPermissionGate values={permissions} onChange={setPermissions} />
               </div>
             </div>
           )}

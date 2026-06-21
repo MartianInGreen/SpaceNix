@@ -11,13 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  name: __t.string(),
-  host: __t.string(),
-  port: __t.u16(),
-  username: __t.string(),
-  keyId: __t.u64(),
-  deviceIds: __t.array(__t.string()),
-  tags: __t.array(__t.string()),
-  enabled: __t.bool(),
-  loginShell: __t.option(__t.string()),
+  id: __t.u64(),
+  shell: __t.option(__t.string()),
 };

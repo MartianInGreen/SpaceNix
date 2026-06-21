@@ -96,6 +96,10 @@ pub struct SshEndpoint {
     pub enabled: bool,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+    /// Login shell to start on the remote host, e.g. `bash`, `zsh`,
+    /// `fish`, `sh`, `dash`. `None` means "let ssh pick" (the
+    /// target user's login shell from `/etc/passwd`).
+    pub login_shell: Option<String>,
 }
 
 #[derive(SpacetimeType, Clone, Debug)]
@@ -112,6 +116,7 @@ pub struct SshEndpointMetadata {
     pub enabled: bool,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+    pub login_shell: Option<String>,
 }
 
 impl From<SshEndpoint> for SshEndpointMetadata {
@@ -129,6 +134,7 @@ impl From<SshEndpoint> for SshEndpointMetadata {
             enabled: e.enabled,
             created_at: e.created_at,
             updated_at: e.updated_at,
+            login_shell: e.login_shell,
         }
     }
 }
@@ -142,6 +148,36 @@ fn validate_name(name: String) -> Result<String, String> {
         return Err(format!("name must be {NAME_MAX_LEN} characters or fewer"));
     }
     Ok(name)
+}
+
+/// Shells we allow the user to pick as a login shell on the
+/// remote host. Anything else is rejected to keep the
+/// `ssh user@host <shell>` argument safe (no shell metachars,
+/// no path traversal, no arbitrary binary). The empty string
+/// means "let ssh use the user's login shell from /etc/passwd".
+const ALLOWED_LOGIN_SHELLS: &[&str] = &["", "bash", "zsh", "fish", "sh", "dash", "ash", "ksh", "csh", "tcsh"];
+
+fn validate_login_shell(shell: String) -> Result<Option<String>, String> {
+    let shell = shell.trim().to_string();
+    if shell.is_empty() {
+        return Ok(None);
+    }
+    if shell.len() > 32 {
+        return Err("login shell must be 32 characters or fewer".to_string());
+    }
+    if !ALLOWED_LOGIN_SHELLS.contains(&shell.as_str()) {
+        return Err(format!(
+            "login shell must be one of: {} (got {:?})",
+            ALLOWED_LOGIN_SHELLS
+                .iter()
+                .filter(|s| !s.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(", "),
+            shell
+        ));
+    }
+    Ok(Some(shell))
 }
 
 fn validate_host(host: String) -> Result<String, String> {
@@ -412,6 +448,7 @@ pub fn set_ssh_endpoint(
     device_ids: Vec<String>,
     tags: Vec<String>,
     enabled: bool,
+    login_shell: Option<String>,
 ) -> Result<(), String> {
     let user = require_registered_user(ctx)?;
     let name = validate_name(name)?;
@@ -420,6 +457,10 @@ pub fn set_ssh_endpoint(
     let username = validate_username(username)?;
     validate_device_ids(&device_ids)?;
     let tags = normalize_tags(tags)?;
+    let login_shell = match login_shell {
+        Some(s) => validate_login_shell(s)?,
+        None => None,
+    };
 
     let key = ctx
         .db
@@ -465,6 +506,7 @@ pub fn set_ssh_endpoint(
             enabled,
             created_at: ctx.timestamp,
             updated_at: ctx.timestamp,
+            login_shell,
         });
     }
     Ok(())
@@ -514,6 +556,28 @@ pub fn set_ssh_endpoint_devices(
     let ep = require_owned_endpoint(ctx, id)?;
     ctx.db.ssh_endpoint().id().update(SshEndpoint {
         device_ids,
+        updated_at: ctx.timestamp,
+        ..ep
+    });
+    Ok(())
+}
+
+/// Set or clear the login shell for the endpoint. Pass `None` or
+/// the empty string to clear (ssh will use the user's default
+/// login shell from `/etc/passwd`).
+#[spacetimedb::reducer]
+pub fn set_ssh_endpoint_shell(
+    ctx: &ReducerContext,
+    id: u64,
+    shell: Option<String>,
+) -> Result<(), String> {
+    let ep = require_owned_endpoint(ctx, id)?;
+    let shell = match shell {
+        Some(s) => validate_login_shell(s)?,
+        None => None,
+    };
+    ctx.db.ssh_endpoint().id().update(SshEndpoint {
+        login_shell: shell,
         updated_at: ctx.timestamp,
         ..ep
     });

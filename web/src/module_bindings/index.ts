@@ -63,6 +63,7 @@ import SetSecretValueReducer from "./set_secret_value_reducer";
 import SetSshEndpointReducer from "./set_ssh_endpoint_reducer";
 import SetSshEndpointDevicesReducer from "./set_ssh_endpoint_devices_reducer";
 import SetSshEndpointEnabledReducer from "./set_ssh_endpoint_enabled_reducer";
+import SetSshEndpointShellReducer from "./set_ssh_endpoint_shell_reducer";
 import SetSshEndpointTagsReducer from "./set_ssh_endpoint_tags_reducer";
 import SetSshKeyReducer from "./set_ssh_key_reducer";
 import SetSshKeyDevicesReducer from "./set_ssh_key_devices_reducer";
@@ -285,6 +286,7 @@ const reducersSchema = __reducers(
   __reducerSchema("set_ssh_endpoint", SetSshEndpointReducer),
   __reducerSchema("set_ssh_endpoint_devices", SetSshEndpointDevicesReducer),
   __reducerSchema("set_ssh_endpoint_enabled", SetSshEndpointEnabledReducer),
+  __reducerSchema("set_ssh_endpoint_shell", SetSshEndpointShellReducer),
   __reducerSchema("set_ssh_endpoint_tags", SetSshEndpointTagsReducer),
   __reducerSchema("set_ssh_key", SetSshKeyReducer),
   __reducerSchema("set_ssh_key_devices", SetSshKeyDevicesReducer),

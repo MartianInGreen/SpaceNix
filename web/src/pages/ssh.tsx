@@ -93,6 +93,7 @@ export function SshPage() {
   const setSshEndpointDevices = useReducer(reducers.setSshEndpointDevices);
   const setSshEndpointTags = useReducer(reducers.setSshEndpointTags);
   const setSshEndpointEnabled = useReducer(reducers.setSshEndpointEnabled);
+  const setSshEndpointShell = useReducer(reducers.setSshEndpointShell);
   const deleteSshEndpoint = useReducer(reducers.deleteSshEndpoint);
   const openSshRelaySession = useReducer(reducers.openSshRelaySession);
 
@@ -293,6 +294,7 @@ export function SshPage() {
             deviceIds,
             tags,
             enabled,
+            loginShell: undefined,
           });
         }}
       />
@@ -316,6 +318,10 @@ export function SshPage() {
         onSetTags={async (tags) => {
           if (!editingEndpoint) return;
           await setSshEndpointTags({ id: editingEndpoint.id, tags });
+        }}
+        onSetShell={async (loginShell) => {
+          if (!editingEndpoint) return;
+          await setSshEndpointShell({ id: editingEndpoint.id, shell: loginShell ?? undefined });
         }}
       />
     </div>
@@ -1091,6 +1097,7 @@ function EndpointDialog({
   onUpdate,
   onSetDevices,
   onSetTags,
+  onSetShell,
 }: {
   mode: "create" | "edit";
   open: boolean;
@@ -1112,6 +1119,7 @@ function EndpointDialog({
   onUpdate?: (host: string, port: number, username: string, keyId: bigint) => Promise<void>;
   onSetDevices?: (deviceIds: string[]) => Promise<void>;
   onSetTags?: (tags: string[]) => Promise<void>;
+  onSetShell?: (shell: string | null) => Promise<void>;
 }) {
   const isEdit = mode === "edit";
   const [name, setName] = React.useState("");
@@ -1122,6 +1130,7 @@ function EndpointDialog({
   const [deviceIds, setDeviceIds] = React.useState<string[]>([]);
   const [tags, setTags] = React.useState<string[]>([]);
   const [enabled, setEnabled] = React.useState(true);
+  const [loginShell, setLoginShell] = React.useState<string>("");
   const [busy, setBusy] = React.useState(false);
   const [tab, setTab] = React.useState("connection");
 
@@ -1136,6 +1145,7 @@ function EndpointDialog({
         setDeviceIds(endpoint.deviceIds);
         setTags(endpoint.tags);
         setEnabled(endpoint.enabled);
+        setLoginShell(endpoint.loginShell ?? "");
         setTab("connection");
       } else {
         setName("");
@@ -1146,6 +1156,7 @@ function EndpointDialog({
         setDeviceIds([]);
         setTags([]);
         setEnabled(true);
+        setLoginShell("");
         setTab("connection");
       }
     }
@@ -1184,6 +1195,10 @@ function EndpointDialog({
         await onUpdate?.(host, portNum, username, BigInt(keyId));
         await onSetDevices?.(deviceIds);
         await onSetTags?.(tags);
+        // loginShell: empty string means "use the user's login shell".
+        if (loginShell !== (endpoint?.loginShell ?? "")) {
+          await onSetShell?.(loginShell === "" ? null : loginShell);
+        }
         onOpenChange(false);
         reportSuccess("Endpoint updated.");
       } catch (err) {
@@ -1280,6 +1295,34 @@ function EndpointDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="ep-shell">Login shell</Label>
+                  <Select
+                    value={loginShell === "" ? "__default__" : loginShell}
+                    onValueChange={(v) => setLoginShell(v === "__default__" ? "" : v)}
+                  >
+                    <SelectTrigger id="ep-shell">
+                      <SelectValue placeholder="User's default shell" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__">User's default shell</SelectItem>
+                      <SelectItem value="bash">bash</SelectItem>
+                      <SelectItem value="zsh">zsh</SelectItem>
+                      <SelectItem value="fish">fish</SelectItem>
+                      <SelectItem value="sh">sh</SelectItem>
+                      <SelectItem value="dash">dash</SelectItem>
+                      <SelectItem value="ash">ash</SelectItem>
+                      <SelectItem value="ksh">ksh</SelectItem>
+                      <SelectItem value="csh">csh</SelectItem>
+                      <SelectItem value="tcsh">tcsh</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Forces a specific shell on the remote host. Useful when the
+                    default shell (e.g. fish) doesn't behave well over plain
+                    ssh without an agent.
+                  </p>
                 </div>
               </TabsContent>
               <TabsContent value="devices" className="mt-3 space-y-2">

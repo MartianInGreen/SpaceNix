@@ -19,6 +19,7 @@ pub struct SshEndpointMetadata {
     pub enabled: bool,
     pub created_at: __sdk::Timestamp,
     pub updated_at: __sdk::Timestamp,
+    pub login_shell: Option<String>,
 }
 
 impl __sdk::InModule for SshEndpointMetadata {
@@ -41,6 +42,7 @@ pub struct SshEndpointMetadataCols {
     pub enabled: __sdk::__query_builder::Col<SshEndpointMetadata, bool>,
     pub created_at: __sdk::__query_builder::Col<SshEndpointMetadata, __sdk::Timestamp>,
     pub updated_at: __sdk::__query_builder::Col<SshEndpointMetadata, __sdk::Timestamp>,
+    pub login_shell: __sdk::__query_builder::Col<SshEndpointMetadata, Option<String>>,
 }
 
 impl __sdk::__query_builder::HasCols for SshEndpointMetadata {
@@ -59,6 +61,7 @@ impl __sdk::__query_builder::HasCols for SshEndpointMetadata {
             enabled: __sdk::__query_builder::Col::new(table_name, "enabled"),
             created_at: __sdk::__query_builder::Col::new(table_name, "created_at"),
             updated_at: __sdk::__query_builder::Col::new(table_name, "updated_at"),
+            login_shell: __sdk::__query_builder::Col::new(table_name, "login_shell"),
         }
     }
 }

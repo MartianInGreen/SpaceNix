@@ -343,6 +343,7 @@ async fn run_endpoint(state: &conn::ConnState, cmd: EndpointCommand) -> Result<E
                     args.device,
                     args.tag,
                     args.enabled,
+                    None,
                     move |_ctx, res| {
                         let _ = tx.send(res);
                     },

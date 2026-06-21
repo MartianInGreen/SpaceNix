@@ -216,6 +216,7 @@ export const SshEndpoint = __t.object("SshEndpoint", {
   enabled: __t.bool(),
   createdAt: __t.timestamp(),
   updatedAt: __t.timestamp(),
+  loginShell: __t.option(__t.string()),
 });
 export type SshEndpoint = __Infer<typeof SshEndpoint>;
 
@@ -232,6 +233,7 @@ export const SshEndpointMetadata = __t.object("SshEndpointMetadata", {
   enabled: __t.bool(),
   createdAt: __t.timestamp(),
   updatedAt: __t.timestamp(),
+  loginShell: __t.option(__t.string()),
 });
 export type SshEndpointMetadata = __Infer<typeof SshEndpointMetadata>;
 

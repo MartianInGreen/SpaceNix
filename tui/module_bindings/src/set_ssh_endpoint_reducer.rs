@@ -15,6 +15,7 @@ pub(super) struct SetSshEndpointArgs {
     pub device_ids: Vec<String>,
     pub tags: Vec<String>,
     pub enabled: bool,
+    pub login_shell: Option<String>,
 }
 
 impl From<SetSshEndpointArgs> for super::Reducer {
@@ -28,6 +29,7 @@ impl From<SetSshEndpointArgs> for super::Reducer {
             device_ids: args.device_ids,
             tags: args.tags,
             enabled: args.enabled,
+            login_shell: args.login_shell,
         }
     }
 }
@@ -57,6 +59,7 @@ pub trait set_ssh_endpoint {
         device_ids: Vec<String>,
         tags: Vec<String>,
         enabled: bool,
+        login_shell: Option<String>,
     ) -> __sdk::Result<()> {
         self.set_ssh_endpoint_then(
             name,
@@ -67,6 +70,7 @@ pub trait set_ssh_endpoint {
             device_ids,
             tags,
             enabled,
+            login_shell,
             |_, _| {},
         )
     }
@@ -87,6 +91,7 @@ pub trait set_ssh_endpoint {
         device_ids: Vec<String>,
         tags: Vec<String>,
         enabled: bool,
+        login_shell: Option<String>,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
@@ -105,6 +110,7 @@ impl set_ssh_endpoint for super::RemoteReducers {
         device_ids: Vec<String>,
         tags: Vec<String>,
         enabled: bool,
+        login_shell: Option<String>,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
@@ -120,6 +126,7 @@ impl set_ssh_endpoint for super::RemoteReducers {
                 device_ids,
                 tags,
                 enabled,
+                login_shell,
             },
             callback,
         )
