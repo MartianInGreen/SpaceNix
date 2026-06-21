@@ -6,6 +6,7 @@ export const STDB_URI = env.VITE_STDB_URI ?? "http://127.0.0.1:3000";
 export const STDB_MODULE = env.VITE_STDB_MODULE ?? "spacenix-9wfd4";
 
 const TOKEN_KEY = "spacenix.stdb.token";
+const CREDS_KEY = "spacenix.stdb.credentials";
 
 export function loadStoredToken(): string | undefined {
   try {
@@ -30,6 +31,41 @@ export function storeToken(token: string | undefined) {
 
 export function clearStoredToken() {
   storeToken(undefined);
+}
+
+export interface StoredCredentials {
+  email: string;
+  password: string;
+}
+
+export function loadStoredCredentials(): StoredCredentials | undefined {
+  try {
+    const raw = localStorage.getItem(CREDS_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<StoredCredentials>;
+    if (typeof parsed.email === "string" && typeof parsed.password === "string") {
+      return { email: parsed.email, password: parsed.password };
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function storeCredentials(creds: StoredCredentials | undefined) {
+  try {
+    if (creds) {
+      localStorage.setItem(CREDS_KEY, JSON.stringify(creds));
+    } else {
+      localStorage.removeItem(CREDS_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearStoredCredentials() {
+  storeCredentials(undefined);
 }
 
 export function identityHex(id: Identity | undefined): string {

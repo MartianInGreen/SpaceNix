@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronRight, Folder, FolderOpen, CornerDownRight } from "lucide-react";
+import { Folder, FolderOpen, CornerDownRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { buildTree, findByPath, getParents, type TreeNode } from "@/components/file-tree";
@@ -106,8 +106,8 @@ function FolderPickerRow({
 
 export function defaultPathFor(files: readonly FileMetadata[], file: FileMetadata | null): string {
   if (!file) return "";
-  if (file.path) {
-    const segs = file.path.split("/").filter(Boolean);
+  if (file.treePath) {
+    const segs = file.treePath.split("/").filter(Boolean);
     if (segs.length <= 1) return "";
     return segs.slice(0, -1).join("/");
   }

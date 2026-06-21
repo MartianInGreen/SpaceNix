@@ -3,7 +3,14 @@ import * as React from "react";
 import { useSpacetimeDB, useTable, useReducer } from "spacetimedb/react";
 import { reducers, tables } from "@/module_bindings";
 
-import { identityHex } from "@/lib/stdb";
+import {
+  clearStoredCredentials,
+  clearStoredToken,
+  identityHex,
+  loadStoredCredentials,
+  storeCredentials,
+} from "@/lib/stdb";
+import { deriveFileEncryptionKey } from "@/lib/file-crypto";
 
 export interface AuthState {
   status: "connecting" | "connected" | "error";
@@ -13,6 +20,10 @@ export interface AuthState {
   displayName: string | null;
   role: string | null;
   isAdmin: boolean;
+  /** True while a stored-credential auto sign-in is being replayed. */
+  restoring: boolean;
+  fileEncryptionKey: CryptoKey | null;
+  fileEncryptionError?: string;
   error?: string;
 }
 
@@ -23,6 +34,7 @@ export interface AuthContextValue extends AuthState {
     password: string,
     displayName?: string
   ) => Promise<void>;
+  updateLocalPassword: (password: string, fileKey?: CryptoKey) => void;
   signOut: () => Promise<void>;
   /** Force a hard disconnect and reconnect with a fresh anonymous identity. */
   hardReset: () => void;
@@ -65,7 +77,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOutReducer = useReducer(reducers.signOut);
 
   const user = rows[0];
-  const identityHexVal = identityHex(conn.identity);
+  const connectionIdentityHex = identityHex(conn.identity);
+  const userIdentityHex = user ? identityHex(user.identity) : connectionIdentityHex;
+  const hasUser = Boolean(user);
+  const [restoring, setRestoring] = React.useState<boolean>(
+    () => loadStoredCredentials() !== undefined
+  );
+  const [fileEncryptionPassword, setFileEncryptionPassword] = React.useState<string | null>(
+    () => loadStoredCredentials()?.password ?? null
+  );
+  const [fileEncryptionKey, setFileEncryptionKey] = React.useState<CryptoKey | null>(null);
+  const [fileEncryptionError, setFileEncryptionError] = React.useState<string | undefined>();
+
+  React.useEffect(() => {
+    if (!userIdentityHex || !fileEncryptionPassword || !hasUser) {
+      setFileEncryptionKey(null);
+      setFileEncryptionError(undefined);
+      return;
+    }
+
+    let cancelled = false;
+    setFileEncryptionError(undefined);
+    deriveFileEncryptionKey(fileEncryptionPassword, userIdentityHex)
+      .then((key) => {
+        if (!cancelled) setFileEncryptionKey(key);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setFileEncryptionKey(null);
+          setFileEncryptionError(
+            err instanceof Error ? err.message : "Could not derive file encryption key."
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fileEncryptionPassword, userIdentityHex, hasUser]);
+
+  React.useEffect(() => {
+    if (!conn.isActive) return;
+    if (user) {
+      setRestoring(false);
+      return;
+    }
+    const stored = loadStoredCredentials();
+    if (!stored) {
+      setRestoring(false);
+      return;
+    }
+    setRestoring(true);
+    let cancelled = false;
+    signInReducer({ email: stored.email, password: stored.password })
+      .then(() => {
+        if (!cancelled) {
+          storeCredentials(stored);
+          setFileEncryptionPassword(stored.password);
+          setRestoring(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          clearStoredCredentials();
+          setRestoring(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Re-run only when the connection identity changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn.isActive, connectionIdentityHex, user]);
 
   const status: AuthState["status"] = conn.connectionError
     ? "error"
@@ -75,18 +158,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthContextValue = {
     status,
-    identityHex: identityHexVal,
+    identityHex: userIdentityHex,
     isAuthenticated: Boolean(user),
     email: user?.email ?? null,
     displayName: user?.displayName ?? null,
     role: user?.role ?? null,
     isAdmin: user?.role === "admin",
+    restoring,
+    fileEncryptionKey,
+    fileEncryptionError,
     error: conn.connectionError?.message,
     signIn: async (email, password) => {
       await signInReducer({ email, password });
+      storeCredentials({ email, password });
+      setFileEncryptionPassword(password);
     },
     signUp: async (email, password, displayName) => {
       await signUpReducer({ email, password, displayName: displayName ?? undefined });
+      storeCredentials({ email, password });
+      setFileEncryptionPassword(password);
+    },
+    updateLocalPassword: (password, fileKey) => {
+      if (!user?.email) {
+        throw new Error("Cannot update local password before sign in completes.");
+      }
+      storeCredentials({ email: user.email, password });
+      setFileEncryptionPassword(password);
+      setFileEncryptionError(undefined);
+      if (fileKey) setFileEncryptionKey(fileKey);
     },
     signOut: async () => {
       try {
@@ -100,6 +199,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         /* ignore */
       }
+      clearStoredToken();
+      clearStoredCredentials();
+      setFileEncryptionPassword(null);
+      setFileEncryptionKey(null);
       bump();
     },
     hardReset: () => {
@@ -108,6 +211,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         /* ignore */
       }
+      clearStoredToken();
+      clearStoredCredentials();
+      setFileEncryptionPassword(null);
+      setFileEncryptionKey(null);
       bump();
     },
   };

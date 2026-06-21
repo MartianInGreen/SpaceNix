@@ -10,14 +10,15 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-import {
-  UploadTicket,
-} from "./types";
-
 export const params = {
-  name: __t.string(),
-  treePath: __t.option(__t.string()),
-  localPath: __t.option(__t.string()),
-  contentType: __t.option(__t.string()),
+  email: __t.string(),
+  password: __t.string(),
+  bucket: __t.string(),
+  region: __t.string(),
+  endpoint: __t.option(__t.string()),
+  accessKeyId: __t.option(__t.string()),
+  secretAccessKey: __t.option(__t.string()),
+  pathPrefix: __t.option(__t.string()),
+  publicBaseUrl: __t.option(__t.string()),
 };
-export const returnType = __t.result(UploadTicket, __t.string())
+export const returnType = __t.result(__t.unit(), __t.string())

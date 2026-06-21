@@ -15,6 +15,7 @@ import * as RequestDownloadUrlProcedure from "../request_download_url_procedure"
 import * as RequestUploadUrlProcedure from "../request_upload_url_procedure";
 import * as RevealSecretProcedure from "../reveal_secret_procedure";
 import * as SearchFilesProcedure from "../search_files_procedure";
+import * as UpdateS3ConfigWithCredentialsProcedure from "../update_s_3_config_with_credentials_procedure";
 
 export type ApiKeyHasPermissionArgs = __Infer<typeof ApiKeyHasPermissionProcedure.params>;
 export type ApiKeyHasPermissionResult = __Infer<typeof ApiKeyHasPermissionProcedure.returnType>;
@@ -34,4 +35,6 @@ export type RevealSecretArgs = __Infer<typeof RevealSecretProcedure.params>;
 export type RevealSecretResult = __Infer<typeof RevealSecretProcedure.returnType>;
 export type SearchFilesArgs = __Infer<typeof SearchFilesProcedure.params>;
 export type SearchFilesResult = __Infer<typeof SearchFilesProcedure.returnType>;
+export type UpdateS3ConfigWithCredentialsArgs = __Infer<typeof UpdateS3ConfigWithCredentialsProcedure.params>;
+export type UpdateS3ConfigWithCredentialsResult = __Infer<typeof UpdateS3ConfigWithCredentialsProcedure.returnType>;
 

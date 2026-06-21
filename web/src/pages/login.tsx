@@ -111,7 +111,7 @@ export function LoginPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 disabled={submitting}
-                placeholder="Your data will be encypted using this password, please choose a secure password."
+                placeholder="Your data will be encrypted using this password, please choose a secure password."
               />
             </div>
             {isSignUp ? (

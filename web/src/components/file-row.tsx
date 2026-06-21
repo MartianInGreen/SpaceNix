@@ -31,15 +31,19 @@ import type { FileMetadata } from "@/module_bindings/types";
 
 function fileKind(meta: FileMetadata): "folder" | "text" | "file" | "uploading" {
   if (meta.isDirectory) return "folder";
-  const pendingFinalize = !meta.isDirectory && meta.inlineContent == null && meta.hash.length === 0;
-  if (pendingFinalize) return "uploading";
-  if (meta.inlineContent != null) return "text";
+  if (meta.hash.length === 0) return "uploading";
+  const ct = meta.contentType ?? "";
+  if (ct.length === 0 || /^(text\/|application\/(json|xml|x-yaml|toml|javascript|typescript))/i.test(ct)) {
+    return "text";
+  }
   return "file";
 }
 
 export function FileRow({
   file,
   selected,
+  compact,
+  canMutate,
   onSelect,
   onActivate,
   onDownload,
@@ -56,6 +60,9 @@ export function FileRow({
 }: {
   file: FileMetadata;
   selected: boolean;
+  compact?: boolean;
+  /** Disable rename/move/delete for synthetic or read-only rows. */
+  canMutate?: boolean;
   onSelect: () => void;
   onActivate: () => void;
   onDownload: () => void;
@@ -74,6 +81,7 @@ export function FileRow({
   const isFolder = kind === "folder";
   const isUploading = kind === "uploading";
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
@@ -120,7 +128,10 @@ export function FileRow({
       onDragOver={onDragOver}
       onDrop={onDrop}
       className={cn(
-        "group grid cursor-pointer grid-cols-[1fr_auto_120px_120px_44px] items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm transition-colors",
+        "group grid cursor-pointer items-center gap-3 rounded-md border border-transparent px-3 text-sm transition-colors",
+        compact
+          ? "grid-cols-[1fr_auto] py-1.5"
+          : "grid-cols-[1fr_auto_120px_120px_44px] py-2",
         "hover:bg-accent/40 focus:bg-accent/40 focus:outline-none",
         selected && "border-primary/40 bg-primary/5",
         dragging && "opacity-50"
@@ -129,7 +140,8 @@ export function FileRow({
       <div className="flex min-w-0 items-center gap-2.5">
         <span
           className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-md",
+            "flex shrink-0 items-center justify-center rounded-md",
+            compact ? "size-6" : "size-7",
             isFolder
               ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
               : kind === "text"
@@ -138,45 +150,60 @@ export function FileRow({
           )}
         >
           {isFolder ? (
-            <Folder className="size-4" />
+            <Folder className={compact ? "size-3.5" : "size-4"} />
           ) : kind === "text" ? (
-            <FileText className="size-4" />
+            <FileText className={compact ? "size-3.5" : "size-4"} />
           ) : (
-            <FileIcon className="size-4" />
+            <FileIcon className={compact ? "size-3.5" : "size-4"} />
           )}
         </span>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="truncate font-medium">{file.name}</span>
+            <span className={cn("truncate", compact ? "text-sm" : "font-medium")}>{file.name}</span>
             {isUploading ? (
-              <Badge variant="warning" className="gap-1">
-                <Loader2 className="size-3 animate-spin" /> uploading
+              <Badge variant="warning" className="gap-1 text-[10px]">
+                <Loader2 className="size-2.5 animate-spin" /> uploading
               </Badge>
             ) : null}
           </div>
-          {file.contentType ? (
+          {compact ? null : file.contentType ? (
             <div className="truncate text-[11px] text-muted-foreground">{file.contentType}</div>
-          ) : file.path ? (
-            <div className="truncate font-mono text-[11px] text-muted-foreground">{file.path}</div>
+          ) : file.localPath ? (
+            <div className="truncate font-mono text-[11px] text-muted-foreground">
+              {file.localPath}
+            </div>
           ) : null}
         </div>
       </div>
 
-      <div className="hidden text-right text-xs text-muted-foreground md:block">
-        {file.hash ? (
-          <code className="font-mono text-[11px]">{shortId(file.hash, 10, 6)}</code>
-        ) : (
-          <span>—</span>
-        )}
-      </div>
+      {compact ? (
+        <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
+          <span className="font-mono text-[10px]">{formatTimestamp(file.updatedAt)}</span>
+          <span>{isFolder ? "folder" : formatBytes(file.sizeBytes)}</span>
+        </div>
+      ) : null}
 
-      <div className="hidden text-right text-xs text-muted-foreground md:block">
-        {isFolder ? "—" : formatBytes(file.sizeBytes)}
-      </div>
+      {!compact ? (
+        <div className="hidden text-right text-xs text-muted-foreground md:block">
+          {file.hash ? (
+            <code className="font-mono text-[11px]">{shortId(file.hash, 10, 6)}</code>
+          ) : (
+            <span>—</span>
+          )}
+        </div>
+      ) : null}
 
-      <div className="hidden text-right text-xs text-muted-foreground md:block">
-        {formatTimestamp(file.updatedAt)}
-      </div>
+      {!compact ? (
+        <div className="hidden text-right text-xs text-muted-foreground md:block">
+          {isFolder ? "—" : formatBytes(file.sizeBytes)}
+        </div>
+      ) : null}
+
+      {!compact ? (
+        <div className="hidden text-right text-xs text-muted-foreground md:block">
+          {formatTimestamp(file.updatedAt)}
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
         {busy ? (
@@ -245,6 +272,7 @@ export function FileRow({
                 <MenuItem
                   icon={<Edit3 className="size-3.5" />}
                   label="Edit text"
+                  disabled={isUploading}
                   onClick={() => {
                     setMenuOpen(false);
                     onEdit();
@@ -254,6 +282,7 @@ export function FileRow({
               <MenuItem
                 icon={<Pencil className="size-3.5" />}
                 label="Rename"
+                disabled={canMutate === false}
                 onClick={() => {
                   setMenuOpen(false);
                   onRename();
@@ -262,24 +291,51 @@ export function FileRow({
               <MenuItem
                 icon={<FolderInput className="size-3.5" />}
                 label="Move…"
+                disabled={canMutate === false}
                 onClick={() => {
                   setMenuOpen(false);
                   onMove();
                 }}
               />
               <div className="my-1 h-px bg-border" />
-              <DeleteMenuItem
-                onConfirm={() => {
+              <MenuItem
+                icon={<Trash2 className="size-3.5" />}
+                label="Delete"
+                destructive
+                disabled={canMutate === false}
+                onClick={() => {
                   setMenuOpen(false);
-                  onDelete();
+                  setDeleteOpen(true);
                 }}
-                name={file.name}
-                isFolder={isFolder}
               />
             </div>
           ) : null}
         </div>
       </div>
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{file.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isFolder
+                ? "This removes the folder and everything inside it from syncing."
+                : "This removes the file from syncing. The stored object stays in place."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onDelete();
+                setDeleteOpen(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -313,56 +369,5 @@ function MenuItem({
       <span className="text-muted-foreground">{icon}</span>
       {label}
     </button>
-  );
-}
-
-function DeleteMenuItem({
-  onConfirm,
-  name,
-  isFolder,
-}: {
-  onConfirm: () => void;
-  name: string;
-  isFolder: boolean;
-}) {
-  const [open, setOpen] = React.useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 focus:bg-destructive/10"
-      >
-        <span>
-          <Trash2 className="size-3.5" />
-        </span>
-        Delete
-      </button>
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete "{name}"?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {isFolder
-                ? "This removes the folder from syncing. Files inside stay in their place."
-                : "This removes the file from syncing. The stored object stays in place."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                onConfirm();
-                setOpen(false);
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
   );
 }

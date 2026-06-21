@@ -17,6 +17,8 @@ export type TreeNode = {
   name: string;
   fullPath: string;
   isDirectory: boolean;
+  /** True when the directory was implied by file paths but has no `user_file` row. */
+  implicit?: boolean;
   file?: FileMetadata;
   children: TreeNode[];
 };
@@ -31,8 +33,8 @@ export function buildTree(files: readonly FileMetadata[]): TreeNode {
   });
 
   for (const f of sorted) {
-    const path = f.path ?? "";
-    const segments = path === "" ? [] : path.split("/").filter(Boolean);
+    const rawPath = f.treePath ?? "";
+    const segments = rawPath === "" ? [] : rawPath.split("/").filter(Boolean);
     let parentPath = "";
     let parent = root;
     for (const seg of segments) {
@@ -43,6 +45,7 @@ export function buildTree(files: readonly FileMetadata[]): TreeNode {
           name: seg,
           fullPath: parentPath,
           isDirectory: true,
+          implicit: true,
           children: [],
         };
         parent.children.push(next);
@@ -51,13 +54,30 @@ export function buildTree(files: readonly FileMetadata[]): TreeNode {
       parent = next;
     }
     const name = segments.length > 0 ? segments[segments.length - 1] : f.name;
-    parent.children.push({
+    const node: TreeNode = {
       name,
-      fullPath: path,
+      fullPath: rawPath === "" ? f.name : rawPath,
       isDirectory: f.isDirectory,
-      file: f,
       children: [],
-    });
+    };
+    if (f.isDirectory) {
+      node.file = f;
+      // Replace the implicit placeholder (if any) at this path with the explicit one.
+      const existingIdx = parent.children.findIndex(
+        (c) => c.isDirectory && c.fullPath === rawPath
+      );
+      if (existingIdx >= 0) {
+        node.children = parent.children[existingIdx].children;
+        parent.children[existingIdx] = node;
+        dirMap.set(rawPath, node);
+      } else {
+        parent.children.push(node);
+        dirMap.set(rawPath, node);
+      }
+    } else {
+      node.file = f;
+      parent.children.push(node);
+    }
   }
 
   return root;
@@ -215,10 +235,10 @@ function TreeRow({
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
       )}
-      style={{ paddingLeft: `${depth * 12 + 6}px` }}
+      style={{ paddingLeft: `${depth * 14 + 6}px` }}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-        {isDir ? (
+      <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        {isDir && !isRoot ? (
           isExpanded ? (
             <ChevronDown className="size-3.5" />
           ) : (
@@ -229,21 +249,30 @@ function TreeRow({
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
         {isDir ? (
           isExpanded ? (
-            <FolderOpen className="size-4" />
+            <FolderOpen className={cn("size-4", node.implicit && "opacity-60")} />
           ) : (
-            <Folder className="size-4" />
+            <Folder className={cn("size-4", node.implicit && "opacity-60")} />
           )
-        ) : isRoot ? null : node.file?.inlineContent != null ? (
-          <FileText className="size-4" />
-        ) : (
-          <FileIcon className="size-4" />
-        )}
+        ) : isRoot ? null : (() => {
+          const ct = node.file?.contentType ?? "";
+          if (!ct) return <FileText className="size-4" />;
+          if (/^(text\/|application\/(json|xml|x-yaml|toml|javascript|typescript))/i.test(ct)) {
+            return <FileText className="size-4" />;
+          }
+          return <FileIcon className="size-4" />;
+        })()}
       </span>
       <span
         className={cn(
           "flex-1 truncate",
-          isRoot && "font-semibold tracking-tight text-sidebar-foreground"
+          isRoot && "font-semibold tracking-tight text-sidebar-foreground",
+          node.implicit && !isRoot && "italic text-muted-foreground"
         )}
+        title={
+          node.implicit
+            ? "Implied by file paths. Files inside sync to this location."
+            : undefined
+        }
       >
         {isRoot ? "All files" : node.name}
       </span>

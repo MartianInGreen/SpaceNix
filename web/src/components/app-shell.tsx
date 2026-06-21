@@ -8,6 +8,7 @@ import {
   LogOut,
   Moon,
   Sun,
+  UserRound,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ const NAV = [
   { to: "/secrets", label: "Secrets", icon: KeyRound },
   { to: "/pats", label: "PATs", icon: KeyRound },
   { to: "/devices", label: "Devices", icon: Laptop },
+  { to: "/account", label: "Account", icon: UserRound },
 ] as const;
 
 export function AppShell() {

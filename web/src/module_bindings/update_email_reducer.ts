@@ -11,7 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  name: __t.string(),
-  treePath: __t.option(__t.string()),
-  localPath: __t.option(__t.string()),
+  newEmail: __t.string(),
+  currentPassword: __t.string(),
 };

@@ -45,7 +45,6 @@ import RenameDeviceReducer from "./rename_device_reducer";
 import RenameFileReducer from "./rename_file_reducer";
 import RevokeApiKeyReducer from "./revoke_api_key_reducer";
 import SetDeviceHostnameReducer from "./set_device_hostname_reducer";
-import SetFileContentReducer from "./set_file_content_reducer";
 import SetSecretReducer from "./set_secret_reducer";
 import SetSecretDevicesReducer from "./set_secret_devices_reducer";
 import SetSecretPermissionsReducer from "./set_secret_permissions_reducer";
@@ -55,6 +54,8 @@ import SignOutReducer from "./sign_out_reducer";
 import SignUpReducer from "./sign_up_reducer";
 import TouchDeviceReducer from "./touch_device_reducer";
 import UpdateApiKeyPermissionsReducer from "./update_api_key_permissions_reducer";
+import UpdateEmailReducer from "./update_email_reducer";
+import UpdatePasswordReducer from "./update_password_reducer";
 import UpdateS3ConfigReducer from "./update_s_3_config_reducer";
 
 // Import all procedure arg schemas
@@ -67,6 +68,7 @@ import * as RequestDownloadUrlProcedure from "./request_download_url_procedure";
 import * as RequestUploadUrlProcedure from "./request_upload_url_procedure";
 import * as RevealSecretProcedure from "./reveal_secret_procedure";
 import * as SearchFilesProcedure from "./search_files_procedure";
+import * as UpdateS3ConfigWithCredentialsProcedure from "./update_s_3_config_with_credentials_procedure";
 
 // Import all table schema definitions
 import DeviceRow from "./device_table";
@@ -206,7 +208,6 @@ const reducersSchema = __reducers(
   __reducerSchema("rename_file", RenameFileReducer),
   __reducerSchema("revoke_api_key", RevokeApiKeyReducer),
   __reducerSchema("set_device_hostname", SetDeviceHostnameReducer),
-  __reducerSchema("set_file_content", SetFileContentReducer),
   __reducerSchema("set_secret", SetSecretReducer),
   __reducerSchema("set_secret_devices", SetSecretDevicesReducer),
   __reducerSchema("set_secret_permissions", SetSecretPermissionsReducer),
@@ -216,6 +217,8 @@ const reducersSchema = __reducers(
   __reducerSchema("sign_up", SignUpReducer),
   __reducerSchema("touch_device", TouchDeviceReducer),
   __reducerSchema("update_api_key_permissions", UpdateApiKeyPermissionsReducer),
+  __reducerSchema("update_email", UpdateEmailReducer),
+  __reducerSchema("update_password", UpdatePasswordReducer),
   __reducerSchema("update_s_3_config", UpdateS3ConfigReducer),
 );
 
@@ -230,6 +233,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("request_upload_url", RequestUploadUrlProcedure.params, RequestUploadUrlProcedure.returnType),
   __procedureSchema("reveal_secret", RevealSecretProcedure.params, RevealSecretProcedure.returnType),
   __procedureSchema("search_files", SearchFilesProcedure.params, SearchFilesProcedure.returnType),
+  __procedureSchema("update_s_3_config_with_credentials", UpdateS3ConfigWithCredentialsProcedure.params, UpdateS3ConfigWithCredentialsProcedure.returnType),
 );
 
 /** The remote SpacetimeDB module schema, both runtime and type information. */

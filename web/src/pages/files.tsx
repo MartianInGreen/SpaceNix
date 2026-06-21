@@ -2,6 +2,7 @@ import * as React from "react";
 import { useProcedure, useReducer, useTable } from "spacetimedb/react";
 import {
   Download,
+  Folder,
   FolderPlus,
   FilesIcon,
   Pencil,
@@ -12,17 +13,17 @@ import {
   Search,
   ChevronRight,
   Home,
-  Filter,
   ArrowUpDown,
-  LayoutGrid,
-  List as ListIcon,
+  Grid3x3,
 } from "lucide-react";
 
 import { procedures, reducers, tables } from "@/module_bindings";
 import type { FileMetadata, ReplaceTicket, UploadTicket } from "@/module_bindings/types";
 import { Timestamp } from "spacetimedb";
 import { unwrap } from "@/lib/stdb";
-import { cn, formatBytes, formatTimestamp } from "@/lib/utils";
+import { decryptFileContent, encryptFileContent } from "@/lib/file-crypto";
+import { useAuth } from "@/lib/auth";
+import { cn, formatBytes } from "@/lib/utils";
 import { reportError, reportSuccess } from "@/lib/toast";
 import { PageHeader, EmptyState, ConfirmDelete, Spinner } from "@/components/common";
 import {
@@ -70,7 +71,6 @@ async function sha256Hex(data: ArrayBuffer | Blob): Promise<string> {
 }
 
 function isTextFile(meta: FileMetadata): boolean {
-  if (meta.inlineContent != null) return true;
   const ct = meta.contentType ?? "";
   return ct.length === 0 || TEXT_TYPES.test(ct);
 }
@@ -78,14 +78,19 @@ function isTextFile(meta: FileMetadata): boolean {
 const ZERO_TS = new Timestamp(0n);
 
 function synthesizeDir(name: string, fullPath: string): FileMetadata {
+  let hash = 0n;
+  for (let i = 0; i < fullPath.length; i++) {
+    hash = (hash * 131n + BigInt(fullPath.charCodeAt(i))) & 0x7fffffffffffffffn;
+  }
+  const id = -1n - hash;
   return {
-    id: 0n,
+    id,
     name,
-    path: fullPath,
+    treePath: fullPath,
+    localPath: undefined,
     hash: "",
     sizeBytes: 0n,
     contentType: undefined,
-    inlineContent: undefined,
     isDirectory: true,
     s3Key: "",
     createdAt: ZERO_TS,
@@ -94,11 +99,11 @@ function synthesizeDir(name: string, fullPath: string): FileMetadata {
 }
 
 function isUploading(meta: FileMetadata): boolean {
-  return !meta.isDirectory && meta.inlineContent == null && meta.hash.length === 0;
+  return !meta.isDirectory && meta.hash.length === 0;
 }
 
 function fileFullPath(f: FileMetadata): string {
-  if (f.path) return f.path;
+  if (f.treePath) return f.treePath;
   return f.name;
 }
 
@@ -107,10 +112,11 @@ function fileKey(f: FileMetadata): string {
 }
 
 type SortKey = "name" | "size" | "updated" | "kind";
-type ViewMode = "list" | "grid";
+type ViewMode = "list" | "compact";
 
 export function FilesPage() {
   const [rows, ready] = useTable(tables.my_files);
+  const { fileEncryptionKey } = useAuth();
 
   const requestUpload = useProcedure(procedures.requestUploadUrl);
   const requestDownload = useProcedure(procedures.requestDownloadUrl);
@@ -119,7 +125,6 @@ export function FilesPage() {
   const createFolder = useReducer(reducers.createFolder);
   const deleteFile = useReducer(reducers.deleteFile);
   const renameFile = useReducer(reducers.renameFile);
-  const setFileContent = useReducer(reducers.setFileContent);
 
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [textOpen, setTextOpen] = React.useState(false);
@@ -207,6 +212,13 @@ export function FilesPage() {
     });
   }, [currentPath, expanded]);
 
+  const requireFileEncryptionKey = React.useCallback(() => {
+    if (!fileEncryptionKey) {
+      throw new Error("File encryption key is not ready. Sign out and sign back in.");
+    }
+    return fileEncryptionKey;
+  }, [fileEncryptionKey]);
+
   const togglePath = React.useCallback((path: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -218,61 +230,61 @@ export function FilesPage() {
 
   const doUpload = async (
     name: string,
-    path: string | undefined,
-    file: File
+    treePath: string | undefined,
+    localPath: string | undefined,
+    file: Blob
   ): Promise<void> => {
     const contentType = file.type || undefined;
-    const res = await requestUpload({ name, path, contentType });
+    const key = requireFileEncryptionKey();
+    const res = await requestUpload({
+      name,
+      treePath: treePath,
+      localPath: localPath,
+      contentType,
+    });
     const ticket = unwrap<UploadTicket>(res);
+    const body = await file.arrayBuffer();
+    const encryptedBody = await encryptFileContent(key, body);
     const putRes = await fetch(ticket.uploadUrl, {
       method: "PUT",
-      body: file,
-      headers: contentType ? { "Content-Type": contentType } : undefined,
+      mode: "cors",
+      body: encryptedBody,
     });
     if (!putRes.ok) throw new Error(`Upload failed: ${putRes.status} ${putRes.statusText}`);
-    const hash = `sha256:${await sha256Hex(file)}`;
+    const hash = `sha256:${await sha256Hex(body)}`;
     await finalizeUpload({ fileId: ticket.fileId, hash, sizeBytes: BigInt(file.size) });
   };
 
   const doSaveText = async (meta: FileMetadata, text: string): Promise<void> => {
     if (meta.isDirectory) throw new Error("Folders cannot be edited as text files.");
     const contentType = meta.contentType ?? "text/plain";
-    if (meta.inlineContent != null) {
-      await setFileContent({
-        fileId: meta.id,
-        name: meta.name,
-        path: meta.path ?? undefined,
-        content: text,
-        contentType,
-      });
-      return;
-    }
     const blob = new Blob([text], { type: contentType });
+    const key = requireFileEncryptionKey();
     const res = await replaceContent({ fileId: meta.id, contentType });
     const ticket = unwrap<ReplaceTicket>(res);
+    const body = await blob.arrayBuffer();
+    const encryptedBody = await encryptFileContent(key, body);
     const putRes = await fetch(ticket.uploadUrl, {
       method: "PUT",
-      body: blob,
-      headers: { "Content-Type": contentType },
+      mode: "cors",
+      body: encryptedBody,
     });
     if (!putRes.ok) throw new Error(`Save failed: ${putRes.status} ${putRes.statusText}`);
-    const hash = `sha256:${await sha256Hex(blob)}`;
+    const hash = `sha256:${await sha256Hex(body)}`;
     await finalizeUpload({ fileId: meta.id, hash, sizeBytes: BigInt(blob.size) });
   };
 
-  const doDownload = async (meta: FileMetadata) => {
+  const doDownload = React.useCallback(async (meta: FileMetadata) => {
     if (meta.isDirectory) return;
     setBusyId(String(meta.id));
     try {
-      const blob = meta.inlineContent != null
-        ? new Blob([meta.inlineContent], { type: meta.contentType ?? "text/plain" })
-        : await (async () => {
-            const res = await requestDownload({ fileId: meta.id });
-            const url = unwrap<string>(res);
-            const r = await fetch(url);
-            if (!r.ok) throw new Error(`Download failed: ${r.status}`);
-            return r.blob();
-          })();
+      const res = await requestDownload({ fileId: meta.id });
+      const url = unwrap<string>(res);
+      const r = await fetch(url, { mode: "cors" });
+      if (!r.ok) throw new Error(`Download failed: ${r.status}`);
+      const encryptedBody = await r.arrayBuffer();
+      const body = await decryptFileContent(requireFileEncryptionKey(), encryptedBody);
+      const blob = new Blob([body], { type: meta.contentType ?? "application/octet-stream" });
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objUrl;
@@ -287,11 +299,11 @@ export function FilesPage() {
     } finally {
       setBusyId(null);
     }
-  };
+  }, [requestDownload, requireFileEncryptionKey]);
 
-  const openEditor = async (meta: FileMetadata) => {
+  const openEditor = React.useCallback(async (meta: FileMetadata) => {
     if (meta.isDirectory) {
-      reportError(new Error("Folders do not have inline content."));
+      reportError(new Error("Folders cannot be edited."));
       return;
     }
     if (!isTextFile(meta)) {
@@ -299,7 +311,7 @@ export function FilesPage() {
       return;
     }
     setEditing(meta);
-  };
+  }, []);
 
   const activate = React.useCallback((node: TreeNode) => {
     if (node.isDirectory) {
@@ -307,14 +319,14 @@ export function FilesPage() {
       setExpanded((prev) => new Set(prev).add(node.fullPath));
       setSelected(null);
     } else if (node.file) {
-      const filePath = fileFullPath(node.file);
-      const segs = filePath.split("/").filter(Boolean);
-      if (segs.length > 1) {
-        setCurrentPath(segs.slice(0, -1).join("/"));
-      }
       setSelected(fileKey(node.file));
+      if (isTextFile(node.file)) {
+        void openEditor(node.file);
+      } else {
+        void doDownload(node.file);
+      }
     }
-  }, []);
+  }, [openEditor, doDownload]);
 
   const onSelect = React.useCallback((node: TreeNode) => {
     if (node.isDirectory) {
@@ -344,9 +356,14 @@ export function FilesPage() {
         targetPath === ""
           ? joinPath("", source.name)
           : joinPath(targetPath, source.name);
-      if (source.path === newPath) return;
+      if (source.treePath === newPath) return;
       try {
-        await renameFile({ fileId: source.id, name: source.name, path: newPath });
+        await renameFile({
+          fileId: source.id,
+          name: source.name,
+          treePath: newPath,
+          localPath: source.localPath ?? undefined,
+        });
         reportSuccess(`Moved ${source.name}.`);
       } catch (err) {
         reportError(err);
@@ -385,7 +402,7 @@ export function FilesPage() {
     if (files.length === 0) return;
     for (const file of files) {
       try {
-        await doUpload(file.name, currentPath || undefined, file);
+        await doUpload(file.name, currentPath || undefined, undefined, file);
         reportSuccess(`Uploaded ${file.name}`);
       } catch (err) {
         reportError(err);
@@ -400,7 +417,7 @@ export function FilesPage() {
       e.stopPropagation();
       for (const file of files) {
         try {
-          await doUpload(file.name, currentPath || undefined, file);
+          await doUpload(file.name, currentPath || undefined, undefined, file);
           reportSuccess(`Uploaded ${file.name}`);
         } catch (err) {
           reportError(err);
@@ -417,6 +434,9 @@ export function FilesPage() {
   }, [currentPath]);
 
   const isEmpty = rows.length === 0;
+  const currentIsEmpty =
+    !isEmpty && directories.length === 0 && filesHere.length === 0;
+  const hasSearch = search.trim().length > 0;
 
   return (
     <div
@@ -574,9 +594,9 @@ export function FilesPage() {
               <div className="p-6">
                 <EmptyState
                   icon={FilesIcon}
-                  title="No files yet"
-                  description="Folders group files. Text files stay inline. Uploads go to storage."
-                  action={
+              title="No files yet"
+              description="Create a folder or upload a file to get started. File contents are encrypted before they reach S3."
+              action={
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       <Button onClick={() => setFolderOpen(true)} className="gap-2">
                         <FolderPlus className="size-4" /> New folder
@@ -588,6 +608,12 @@ export function FilesPage() {
                   }
                 />
               </div>
+            ) : currentIsEmpty ? (
+              <EmptyState
+                icon={Folder}
+                title="This folder is empty"
+                description="Upload a file or create a subfolder to get started."
+              />
             ) : visibleItems.dirs.length === 0 && visibleItems.files.length === 0 ? (
               <EmptyState
                 icon={Search}
@@ -603,12 +629,22 @@ export function FilesPage() {
               <div className="divide-y">
                 {visibleItems.dirs.map((d) => {
                   const file = d.file ?? synthesizeDir(d.name, d.fullPath);
+                  const isImplicit = !d.file;
                   return (
                   <FileRow
-                    key={String(file.id)}
+                    key={d.file ? String(d.file.id) : `synth-${d.fullPath}`}
                     file={file}
-                    selected={selected === fileKey(d.file!)}
-                    onSelect={() => onSelect(d)}
+                    compact={view === "compact"}
+                    canMutate={!isImplicit}
+                    selected={!isImplicit && selected === fileKey(d.file!)}
+                    onSelect={() => {
+                      if (isImplicit) {
+                        setCurrentPath(d.fullPath);
+                        setSelected(null);
+                      } else {
+                        onSelect(d);
+                      }
+                    }}
                     onActivate={() => activate(d)}
                     onDownload={() => undefined}
                     onEdit={() => undefined}
@@ -619,16 +655,19 @@ export function FilesPage() {
                       await deleteFile({ fileId: d.file.id });
                       reportSuccess("Folder deleted.");
                     }}
-                    onDragStart={(e) => {
-                      if (!d.file) return;
-                      e.dataTransfer.setData(
-                        "application/x-spacenix-file",
-                        JSON.stringify({ id: String(d.file.id) })
-                      );
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
+                    onDragStart={
+                      isImplicit
+                        ? undefined
+                        : (e) => {
+                            if (!d.file) return;
+                            e.dataTransfer.setData(
+                              "application/x-spacenix-file",
+                              JSON.stringify({ id: String(d.file.id) })
+                            );
+                            e.dataTransfer.effectAllowed = "move";
+                          }
+                    }
                     onDragOver={(e) => {
-                      if (!d.file) return;
                       if (Array.from(e.dataTransfer.types).includes("Files")) return;
                       e.preventDefault();
                       e.dataTransfer.dropEffect = "move";
@@ -644,6 +683,7 @@ export function FilesPage() {
                     <FileRow
                       key={String(file.id)}
                       file={file}
+                      compact={view === "compact"}
                       selected={selected === fileKey(file)}
                       busy={busyId === String(file.id)}
                       onSelect={() => onSelect(f)}
@@ -653,8 +693,12 @@ export function FilesPage() {
                       onRename={() => setRenaming(file)}
                       onMove={() => setMoving(file)}
                       onDelete={async () => {
-                        await deleteFile({ fileId: file.id });
-                        reportSuccess("File deleted.");
+                        try {
+                          await deleteFile({ fileId: file.id });
+                          reportSuccess(`Deleted ${file.name}.`);
+                        } catch (err) {
+                          reportError(err);
+                        }
                       }}
                       onDragStart={(e) => {
                         e.dataTransfer.setData(
@@ -705,8 +749,8 @@ export function FilesPage() {
         open={folderOpen}
         onOpenChange={setFolderOpen}
         parentPath={currentPath}
-        onCreate={async (name, path) => {
-          await createFolder({ name, path });
+        onCreate={async (name, treePath, localPath) => {
+          await createFolder({ name, treePath, localPath });
         }}
       />
 
@@ -721,14 +765,9 @@ export function FilesPage() {
         open={textOpen}
         onOpenChange={setTextOpen}
         parentPath={currentPath}
-        onCreate={async (name, path, content) => {
-          await setFileContent({
-            fileId: undefined,
-            name,
-            path,
-            content,
-            contentType: "text/plain",
-          });
+        onCreate={async (name, treePath, localPath, content) => {
+          const blob = new Blob([content], { type: "text/plain" });
+          await doUpload(name, treePath, localPath, blob);
         }}
       />
 
@@ -736,12 +775,13 @@ export function FilesPage() {
         file={editing}
         onOpenChange={(o) => !o && setEditing(null)}
         loadText={async (meta) => {
-          if (meta.inlineContent != null) return meta.inlineContent;
           const res = await requestDownload({ fileId: meta.id });
           const url = unwrap<string>(res);
           const r = await fetch(url);
           if (!r.ok) throw new Error(`Download failed: ${r.status}`);
-          return r.text();
+          const encryptedBody = await r.arrayBuffer();
+          const body = await decryptFileContent(requireFileEncryptionKey(), encryptedBody);
+          return new TextDecoder().decode(body);
         }}
         onSave={doSaveText}
       />
@@ -749,8 +789,8 @@ export function FilesPage() {
       <RenameDialog
         file={renaming}
         onOpenChange={(o) => !o && setRenaming(null)}
-        onRename={async (id, name, path) => {
-          await renameFile({ fileId: id, name, path });
+        onRename={async (id, name, treePath, localPath) => {
+          await renameFile({ fileId: id, name, treePath, localPath });
         }}
       />
 
@@ -758,8 +798,14 @@ export function FilesPage() {
         file={moving}
         files={rows}
         onOpenChange={(o) => !o && setMoving(null)}
-        onMove={async (id, name, path) => {
-          await renameFile({ fileId: id, name, path });
+        onMove={async (id, name, treePath) => {
+          const source = rows.find((r) => r.id === id);
+          await renameFile({
+            fileId: id,
+            name,
+            treePath,
+            localPath: source?.localPath ?? undefined,
+          });
         }}
       />
     </div>
@@ -853,25 +899,15 @@ function Toolbar({
         <div className="flex items-center rounded-md border bg-muted/30 p-0.5">
           <button
             type="button"
-            aria-label="List view"
-            onClick={() => onViewChange("list")}
+            aria-label={view === "list" ? "Switch to compact view" : "Switch to list view"}
+            onClick={() => onViewChange(view === "list" ? "compact" : "list")}
             className={cn(
-              "inline-flex size-7 items-center justify-center rounded text-muted-foreground transition-colors",
-              view === "list" && "bg-background text-foreground shadow-xs"
+              "inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors",
+              view === "compact" && "bg-background text-foreground shadow-xs"
             )}
           >
-            <ListIcon className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Grid view"
-            onClick={() => onViewChange("grid")}
-            className={cn(
-              "inline-flex size-7 items-center justify-center rounded text-muted-foreground transition-colors",
-              view === "grid" && "bg-background text-foreground shadow-xs"
-            )}
-          >
-            <LayoutGrid className="size-3.5" />
+            <Grid3x3 className="size-3.5" />
+            Compact
           </button>
         </div>
       </div>
@@ -927,12 +963,6 @@ function Toolbar({
             <X className="inline size-3" /> clear
           </button>
         </div>
-      ) : null}
-
-      {view === "grid" ? (
-        <p className="text-[11px] text-muted-foreground">
-          Grid view falls back to the list layout for now. The browser view is the canonical one.
-        </p>
       ) : null}
     </div>
   );
@@ -1008,12 +1038,18 @@ function UploadDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onUpload: (name: string, path: string | undefined, file: File) => Promise<void>;
+  onUpload: (
+    name: string,
+    treePath: string | undefined,
+    localPath: string | undefined,
+    file: File
+  ) => Promise<void>;
   parentPath: string;
 }) {
   const [file, setFile] = React.useState<File | null>(null);
   const [name, setName] = React.useState("");
-  const [path, setPath] = React.useState("");
+  const [treePath, setTreePath] = React.useState("");
+  const [localPath, setLocalPath] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState("");
 
@@ -1021,7 +1057,8 @@ function UploadDialog({
     if (open) {
       setFile(null);
       setName("");
-      setPath(parentPath);
+      setTreePath(parentPath);
+      setLocalPath("");
       setProgress("");
     }
   }, [open, parentPath]);
@@ -1036,8 +1073,9 @@ function UploadDialog({
     setBusy(true);
     try {
       setProgress("Requesting upload URL…");
-      const finalPath = path.trim() || parentPath || undefined;
-      await onUpload(name.trim() || file.name, finalPath, file);
+      const finalTree = treePath.trim() || parentPath || undefined;
+      const finalLocal = localPath.trim() || undefined;
+      await onUpload(name.trim() || file.name, finalTree, finalLocal, file);
       onOpenChange(false);
       reportSuccess(`Uploaded ${file.name}`);
     } catch (err) {
@@ -1080,17 +1118,32 @@ function UploadDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="file-path">Path</Label>
+            <Label htmlFor="file-tree-path">SpaceNix path</Label>
             <Input
-              id="file-path"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
+              id="file-tree-path"
+              value={treePath}
+              onChange={(e) => setTreePath(e.target.value)}
               disabled={busy}
-              placeholder={parentPath || "/etc/nixos/foo.nix"}
+              placeholder={parentPath || "projects/website/foo.nix"}
               className="font-mono"
             />
             <p className="text-[11px] text-muted-foreground">
               Leave blank to upload to {parentPath || "root"}.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="file-local-path">Local sync path (optional)</Label>
+            <Input
+              id="file-local-path"
+              value={localPath}
+              onChange={(e) => setLocalPath(e.target.value)}
+              disabled={busy}
+              placeholder="/etc/nixos/foo.nix"
+              className="font-mono"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Absolute path on your local filesystem where the sync agent will keep this
+              file. Optional.
             </p>
           </div>
           {file ? (
@@ -1122,27 +1175,38 @@ function FolderDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (name: string, path: string | undefined) => Promise<void>;
+  onCreate: (
+    name: string,
+    treePath: string | undefined,
+    localPath: string | undefined
+  ) => Promise<void>;
   parentPath: string;
 }) {
   const [name, setName] = React.useState("");
-  const [path, setPath] = React.useState("");
+  const [treePath, setTreePath] = React.useState("");
+  const [localPath, setLocalPath] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setName("");
-      setPath(parentPath);
+      setTreePath(parentPath);
+      setLocalPath("");
     }
   }, [open, parentPath]);
 
   const submit = async () => {
-    const trimmedPath = path.trim();
+    const trimmedTree = treePath.trim();
+    const trimmedLocal = localPath.trim();
     const trimmedName =
-      name.trim() || trimmedPath.split("/").filter(Boolean).pop() || "folder";
+      name.trim() || trimmedTree.split("/").filter(Boolean).pop() || "folder";
     setBusy(true);
     try {
-      await onCreate(trimmedName, trimmedPath || undefined);
+      await onCreate(
+        trimmedName,
+        trimmedTree || undefined,
+        trimmedLocal || undefined
+      );
       onOpenChange(false);
       reportSuccess("Folder created.");
     } catch (err) {
@@ -1175,16 +1239,31 @@ function FolderDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="folder-path">Path</Label>
+            <Label htmlFor="folder-tree-path">SpaceNix path</Label>
             <Input
-              id="folder-path"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder={parentPath || "/etc/nixos"}
+              id="folder-tree-path"
+              value={treePath}
+              onChange={(e) => setTreePath(e.target.value)}
+              placeholder={parentPath || "projects/website"}
               className="font-mono"
             />
             <p className="text-[11px] text-muted-foreground">
-              Path is the full path the folder will sync to.
+              Where this folder lives inside your SpaceNix tree. Leave blank to use{" "}
+              <code className="font-mono">{parentPath || "root"}</code>.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="folder-local-path">Local sync path</Label>
+            <Input
+              id="folder-local-path"
+              value={localPath}
+              onChange={(e) => setLocalPath(e.target.value)}
+              placeholder="/home/hannah/projects/website"
+              className="font-mono"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Absolute path on your local filesystem where the sync agent will keep this
+              folder. Optional — leave blank to decide later.
             </p>
           </div>
         </div>
@@ -1192,7 +1271,7 @@ function FolderDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy || (!name.trim() && !path.trim())}>
+          <Button onClick={submit} disabled={busy || (!name.trim() && !treePath.trim())}>
             {busy ? <Spinner /> : <FolderPlus className="size-4" />}
             Create
           </Button>
@@ -1210,28 +1289,42 @@ function TextFileDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (name: string, path: string | undefined, content: string) => Promise<void>;
+  onCreate: (
+    name: string,
+    treePath: string | undefined,
+    localPath: string | undefined,
+    content: string
+  ) => Promise<void>;
   parentPath: string;
 }) {
   const [name, setName] = React.useState("");
-  const [path, setPath] = React.useState("");
+  const [treePath, setTreePath] = React.useState("");
+  const [localPath, setLocalPath] = React.useState("");
   const [content, setContent] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setName("");
-      setPath(parentPath);
+      setTreePath(parentPath);
+      setLocalPath("");
       setContent("");
     }
   }, [open, parentPath]);
 
   const submit = async () => {
+    const trimmedTree = treePath.trim();
+    const trimmedLocal = localPath.trim();
     const trimmedName =
-      name.trim() || path.trim().split("/").filter(Boolean).pop() || "text-file";
+      name.trim() || trimmedTree.split("/").filter(Boolean).pop() || "text-file";
     setBusy(true);
     try {
-      await onCreate(trimmedName, path.trim() || undefined, content);
+      await onCreate(
+        trimmedName,
+        trimmedTree || undefined,
+        trimmedLocal || undefined,
+        content
+      );
       onOpenChange(false);
       reportSuccess("Text file created.");
     } catch (err) {
@@ -1242,12 +1335,12 @@ function TextFileDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>New text file</DialogTitle>
           <DialogDescription>
-            Inline content stays on the server. Files over 256 KiB should be uploaded instead.
+            Saved directly to storage at the chosen path.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -1262,15 +1355,29 @@ function TextFileDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="text-path">Path</Label>
+              <Label htmlFor="text-tree-path">SpaceNix path</Label>
               <Input
-                id="text-path"
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                placeholder={parentPath || "/etc/nixos/configuration.nix"}
+                id="text-tree-path"
+                value={treePath}
+                onChange={(e) => setTreePath(e.target.value)}
+                placeholder={parentPath || "dotfiles/nixos/configuration.nix"}
                 className="font-mono"
               />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="text-local-path">Local sync path (optional)</Label>
+            <Input
+              id="text-local-path"
+              value={localPath}
+              onChange={(e) => setLocalPath(e.target.value)}
+              placeholder="/etc/nixos/configuration.nix"
+              className="font-mono"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Absolute path on your local filesystem where the sync agent will keep this
+              file. Optional.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="text-content">Content</Label>
@@ -1287,7 +1394,7 @@ function TextFileDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy || (!name.trim() && !path.trim())}>
+          <Button onClick={submit} disabled={busy || (!name.trim() && !treePath.trim())}>
             {busy ? <Spinner /> : <Plus className="size-4" />}
             Create
           </Button>
@@ -1399,16 +1506,23 @@ function RenameDialog({
 }: {
   file: FileMetadata | null;
   onOpenChange: (open: boolean) => void;
-  onRename: (id: bigint, name: string, path: string | undefined) => Promise<void>;
+  onRename: (
+    id: bigint,
+    name: string,
+    treePath: string | undefined,
+    localPath: string | undefined
+  ) => Promise<void>;
 }) {
   const [name, setName] = React.useState("");
-  const [path, setPath] = React.useState("");
+  const [treePath, setTreePath] = React.useState("");
+  const [localPath, setLocalPath] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (file) {
       setName(file.name);
-      setPath(file.path ?? "");
+      setTreePath(file.treePath ?? "");
+      setLocalPath(file.localPath ?? "");
     }
   }, [file]);
 
@@ -1416,7 +1530,12 @@ function RenameDialog({
     if (!file || !name.trim()) return;
     setBusy(true);
     try {
-      await onRename(file.id, name.trim(), path.trim() || undefined);
+      await onRename(
+        file.id,
+        name.trim(),
+        treePath.trim() || undefined,
+        localPath.trim() || undefined
+      );
       onOpenChange(false);
       reportSuccess("File metadata saved.");
     } catch (err) {
@@ -1432,7 +1551,8 @@ function RenameDialog({
         <DialogHeader>
           <DialogTitle>Edit file metadata</DialogTitle>
           <DialogDescription>
-            Update the name and where the file syncs to.
+            Update the name, where it lives in your SpaceNix tree, and where it syncs on
+            disk.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -1446,14 +1566,31 @@ function RenameDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="rename-path">Path</Label>
+            <Label htmlFor="rename-tree-path">SpaceNix path</Label>
             <Input
-              id="rename-path"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
+              id="rename-tree-path"
+              value={treePath}
+              onChange={(e) => setTreePath(e.target.value)}
+              placeholder="dotfiles/nixos/configuration.nix"
+              className="font-mono"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Relative path inside your SpaceNix tree. Leave blank for root.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="rename-local-path">Local sync path</Label>
+            <Input
+              id="rename-local-path"
+              value={localPath}
+              onChange={(e) => setLocalPath(e.target.value)}
               placeholder="/etc/nixos/configuration.nix"
               className="font-mono"
             />
+            <p className="text-[11px] text-muted-foreground">
+              Absolute path on your local filesystem where the sync agent keeps this
+              file. Leave blank to skip syncing for now.
+            </p>
           </div>
         </div>
         <DialogFooter>
@@ -1479,14 +1616,14 @@ function MoveDialog({
   file: FileMetadata | null;
   files: readonly FileMetadata[];
   onOpenChange: (open: boolean) => void;
-  onMove: (id: bigint, name: string, path: string | undefined) => Promise<void>;
+  onMove: (id: bigint, name: string, treePath: string) => Promise<void>;
 }) {
   const [target, setTarget] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (file) {
-      const segs = (file.path ?? "").split("/").filter(Boolean);
+      const segs = (file.treePath ?? "").split("/").filter(Boolean);
       setTarget(segs.length > 1 ? segs.slice(0, -1).join("/") : "");
     }
   }, [file]);
@@ -1512,13 +1649,13 @@ function MoveDialog({
         <DialogHeader>
           <DialogTitle>Move {file?.name ?? ""}</DialogTitle>
           <DialogDescription>
-            Pick a destination folder. The file keeps its name.
+            Pick a destination folder. The file keeps its name and local sync path.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="rounded-md border bg-muted/30 p-2 text-xs">
-            <div className="text-muted-foreground">Current path</div>
-            <div className="mt-0.5 truncate font-mono">{file?.path || "—"}</div>
+            <div className="text-muted-foreground">Current SpaceNix path</div>
+            <div className="mt-0.5 truncate font-mono">{file?.treePath || "—"}</div>
           </div>
           <div className="space-y-2">
             <Label>Destination folder</Label>

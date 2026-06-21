@@ -11,9 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  fileId: __t.option(__t.u64()),
-  name: __t.string(),
-  path: __t.option(__t.string()),
-  content: __t.string(),
-  contentType: __t.option(__t.string()),
+  currentPassword: __t.string(),
+  newPassword: __t.string(),
 };
