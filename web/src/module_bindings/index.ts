@@ -34,6 +34,7 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AckUiCommandReducer from "./ack_ui_command_reducer";
 import CreateFolderReducer from "./create_folder_reducer";
 import DeleteDeviceReducer from "./delete_device_reducer";
 import DeleteFileReducer from "./delete_file_reducer";
@@ -41,11 +42,14 @@ import DeleteSecretReducer from "./delete_secret_reducer";
 import DeleteSshEndpointReducer from "./delete_ssh_endpoint_reducer";
 import DeleteSshKeyReducer from "./delete_ssh_key_reducer";
 import FinalizeUploadReducer from "./finalize_upload_reducer";
+import PruneDeviceMetricsReducer from "./prune_device_metrics_reducer";
 import RegisterDeviceReducer from "./register_device_reducer";
 import RegisterFileReducer from "./register_file_reducer";
 import RenameDeviceReducer from "./rename_device_reducer";
 import RenameFileReducer from "./rename_file_reducer";
+import ReportDeviceMetricsReducer from "./report_device_metrics_reducer";
 import RevokeApiKeyReducer from "./revoke_api_key_reducer";
+import SendUiEventReducer from "./send_ui_event_reducer";
 import SetDeviceHostnameReducer from "./set_device_hostname_reducer";
 import SetSecretReducer from "./set_secret_reducer";
 import SetSecretDevicesReducer from "./set_secret_devices_reducer";
@@ -84,18 +88,44 @@ import * as UpdateS3ConfigWithCredentialsProcedure from "./update_s_3_config_wit
 
 // Import all table schema definitions
 import MyApiKeysRow from "./my_api_keys_table";
+import MyDeviceMetricsRow from "./my_device_metrics_table";
 import MyDevicesRow from "./my_devices_table";
 import MyFilesRow from "./my_files_table";
 import MySecretsRow from "./my_secrets_table";
 import MySshEndpointsRow from "./my_ssh_endpoints_table";
 import MySshKeysRow from "./my_ssh_keys_table";
+import MyUiCommandsRow from "./my_ui_commands_table";
 import MyUserRow from "./my_user_table";
 import S3ConfigStatusRow from "./s_3_config_status_table";
+import UiCommandRow from "./ui_command_table";
+import UiEventRow from "./ui_event_table";
 
 /** Type-only namespace exports for generated type groups. */
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  ui_command: __table({
+    name: 'ui_command',
+    indexes: [
+      { accessor: 'id', name: 'ui_command_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'owner', name: 'ui_command_owner_idx_btree', algorithm: 'btree', columns: [
+        'owner',
+      ] },
+    ],
+    constraints: [
+      { name: 'ui_command_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, UiCommandRow),
+  ui_event: __table({
+    name: 'ui_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+    event: true,
+  }, UiEventRow),
   my_api_keys: __table({
     name: 'my_api_keys',
     indexes: [
@@ -103,6 +133,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyApiKeysRow),
+  my_device_metrics: __table({
+    name: 'my_device_metrics',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyDeviceMetricsRow),
   my_devices: __table({
     name: 'my_devices',
     indexes: [
@@ -138,6 +175,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MySshKeysRow),
+  my_ui_commands: __table({
+    name: 'my_ui_commands',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyUiCommandsRow),
   my_user: __table({
     name: 'my_user',
     indexes: [
@@ -156,6 +200,7 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("ack_ui_command", AckUiCommandReducer),
   __reducerSchema("create_folder", CreateFolderReducer),
   __reducerSchema("delete_device", DeleteDeviceReducer),
   __reducerSchema("delete_file", DeleteFileReducer),
@@ -163,11 +208,14 @@ const reducersSchema = __reducers(
   __reducerSchema("delete_ssh_endpoint", DeleteSshEndpointReducer),
   __reducerSchema("delete_ssh_key", DeleteSshKeyReducer),
   __reducerSchema("finalize_upload", FinalizeUploadReducer),
+  __reducerSchema("prune_device_metrics", PruneDeviceMetricsReducer),
   __reducerSchema("register_device", RegisterDeviceReducer),
   __reducerSchema("register_file", RegisterFileReducer),
   __reducerSchema("rename_device", RenameDeviceReducer),
   __reducerSchema("rename_file", RenameFileReducer),
+  __reducerSchema("report_device_metrics", ReportDeviceMetricsReducer),
   __reducerSchema("revoke_api_key", RevokeApiKeyReducer),
+  __reducerSchema("send_ui_event", SendUiEventReducer),
   __reducerSchema("set_device_hostname", SetDeviceHostnameReducer),
   __reducerSchema("set_secret", SetSecretReducer),
   __reducerSchema("set_secret_devices", SetSecretDevicesReducer),

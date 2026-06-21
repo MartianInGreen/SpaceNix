@@ -13,6 +13,7 @@ mod cli;
 mod cmd;
 mod config;
 mod http;
+mod metrics;
 mod service;
 mod store;
 mod tui;

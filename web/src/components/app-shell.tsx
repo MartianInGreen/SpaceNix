@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { useReducer } from "spacetimedb/react";
 import {
   Cloud,
   FilesIcon,
@@ -13,6 +14,8 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { reducers } from "@/module_bindings";
+import { reportError, reportSuccess } from "@/lib/toast";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/use-theme";
 import { Button } from "@/components/ui/button";
@@ -43,6 +46,21 @@ export function AppShell() {
   const { displayName, email, identityHex, role, signOut } = useAuth();
   const { theme, toggle } = useTheme();
   const location = useLocation();
+  const sendUiEvent = useReducer(reducers.sendUiEvent);
+
+  const sendCurrentPageToTui = async () => {
+    const screen = routeToTuiScreen(location.pathname);
+    try {
+      await sendUiEvent({
+        targetDeviceId: undefined,
+        kind: "screen:open",
+        payloadJson: JSON.stringify({ screen }),
+      });
+      reportSuccess(`Sent ${screen} to TUI.`);
+    } catch (err) {
+      reportError(err);
+    }
+  };
 
   return (
     <div className="flex h-full w-full">
@@ -97,6 +115,10 @@ export function AppShell() {
           <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
             {theme === "dark" ? <Sun /> : <Moon />}
           </Button>
+          <Button variant="ghost" size="sm" className="gap-2" onClick={sendCurrentPageToTui}>
+            <Terminal className="size-4" />
+            <span className="hidden sm:inline">Open in TUI</span>
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-2">
@@ -142,3 +164,10 @@ function MobileNav({ current }: { current: string }) {
 }
 
 export { Link };
+
+function routeToTuiScreen(pathname: string): string {
+  const segment = pathname.split("/").filter(Boolean)[0] ?? "files";
+  if (segment === "ssh") return "ssh_keys";
+  if (segment === "pats") return "tokens";
+  return segment;
+}

@@ -23,6 +23,7 @@ pub struct Config {
     pub config_dir: PathBuf,
     pub stdb_uri: String,
     pub stdb_module: String,
+    pub sync_root: PathBuf,
 }
 
 impl Config {
@@ -37,20 +38,28 @@ impl Config {
         };
         std::fs::create_dir_all(&config_dir)
             .with_context(|| format!("creating config dir {}", config_dir.display()))?;
+        let preferences = Preferences::load(&config_dir.join("config.toml"));
 
         let stdb_uri = override_uri
             .map(str::to_owned)
             .or_else(|| std::env::var("SPACENIX_STDB_URI").ok())
+            .or(preferences.stdb_uri)
             .unwrap_or_else(|| DEFAULT_STDB_URI.to_string());
         let stdb_module = override_module
             .map(str::to_owned)
             .or_else(|| std::env::var("SPACENIX_STDB_MODULE").ok())
+            .or(preferences.stdb_module)
             .unwrap_or_else(|| DEFAULT_STDB_MODULE.to_string());
+        let sync_root = std::env::var_os("SPACENIX_SYNC_ROOT")
+            .map(PathBuf::from)
+            .or(preferences.sync_root)
+            .unwrap_or_else(default_sync_root);
 
         Ok(Self {
             config_dir,
             stdb_uri,
             stdb_module,
+            sync_root,
         })
     }
 
@@ -82,6 +91,12 @@ fn default_config_dir() -> Result<PathBuf> {
     }
     let home = dirs::home_dir().context("HOME is not set and XDG_CONFIG_HOME is not set")?;
     Ok(home.join(".config").join("spacenix"))
+}
+
+fn default_sync_root() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("SpaceNix")
 }
 
 /// Optional persistent preferences written to `config.toml`. The CLI accepts

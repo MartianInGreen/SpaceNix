@@ -13,6 +13,7 @@
 #![allow(unused, clippy::all)]
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
+pub mod ack_ui_command_reducer;
 pub mod api_key_has_permission_procedure;
 pub mod api_key_metadata_type;
 pub mod api_key_type;
@@ -25,26 +26,33 @@ pub mod delete_secret_reducer;
 pub mod delete_ssh_endpoint_reducer;
 pub mod delete_ssh_key_reducer;
 pub mod device_metadata_type;
+pub mod device_metric_sample_type;
+pub mod device_metric_type;
+pub mod device_metrics_report_type;
 pub mod device_type;
 pub mod file_metadata_type;
 pub mod finalize_upload_reducer;
 pub mod get_file_procedure;
 pub mod get_secret_procedure;
 pub mod my_api_keys_table;
+pub mod my_device_metrics_table;
 pub mod my_devices_table;
 pub mod my_files_table;
 pub mod my_secrets_table;
 pub mod my_ssh_endpoints_table;
 pub mod my_ssh_keys_table;
+pub mod my_ui_commands_table;
 pub mod my_user_table;
 pub mod password_credential_type;
 pub mod person_type;
+pub mod prune_device_metrics_reducer;
 pub mod register_device_reducer;
 pub mod register_file_reducer;
 pub mod rename_device_reducer;
 pub mod rename_file_reducer;
 pub mod replace_file_content_procedure;
 pub mod replace_ticket_type;
+pub mod report_device_metrics_reducer;
 pub mod request_download_url_procedure;
 pub mod request_upload_url_procedure;
 pub mod reveal_secret_procedure;
@@ -56,6 +64,7 @@ pub mod s_3_config_type;
 pub mod search_files_procedure;
 pub mod secret_metadata_type;
 pub mod secret_value_type;
+pub mod send_ui_event_reducer;
 pub mod session_type;
 pub mod set_device_hostname_reducer;
 pub mod set_secret_devices_reducer;
@@ -79,6 +88,11 @@ pub mod ssh_key_metadata_type;
 pub mod ssh_key_type;
 pub mod ssh_key_value_type;
 pub mod touch_device_reducer;
+pub mod ui_command_metadata_type;
+pub mod ui_command_table;
+pub mod ui_command_type;
+pub mod ui_event_table;
+pub mod ui_event_type;
 pub mod update_api_key_permissions_reducer;
 pub mod update_email_reducer;
 pub mod update_password_reducer;
@@ -91,6 +105,7 @@ pub mod user_profile_type;
 pub mod user_secret_type;
 pub mod user_type;
 
+pub use ack_ui_command_reducer::ack_ui_command;
 pub use api_key_has_permission_procedure::api_key_has_permission;
 pub use api_key_metadata_type::ApiKeyMetadata;
 pub use api_key_type::ApiKey;
@@ -103,26 +118,33 @@ pub use delete_secret_reducer::delete_secret;
 pub use delete_ssh_endpoint_reducer::delete_ssh_endpoint;
 pub use delete_ssh_key_reducer::delete_ssh_key;
 pub use device_metadata_type::DeviceMetadata;
+pub use device_metric_sample_type::DeviceMetricSample;
+pub use device_metric_type::DeviceMetric;
+pub use device_metrics_report_type::DeviceMetricsReport;
 pub use device_type::Device;
 pub use file_metadata_type::FileMetadata;
 pub use finalize_upload_reducer::finalize_upload;
 pub use get_file_procedure::get_file;
 pub use get_secret_procedure::get_secret;
 pub use my_api_keys_table::*;
+pub use my_device_metrics_table::*;
 pub use my_devices_table::*;
 pub use my_files_table::*;
 pub use my_secrets_table::*;
 pub use my_ssh_endpoints_table::*;
 pub use my_ssh_keys_table::*;
+pub use my_ui_commands_table::*;
 pub use my_user_table::*;
 pub use password_credential_type::PasswordCredential;
 pub use person_type::Person;
+pub use prune_device_metrics_reducer::prune_device_metrics;
 pub use register_device_reducer::register_device;
 pub use register_file_reducer::register_file;
 pub use rename_device_reducer::rename_device;
 pub use rename_file_reducer::rename_file;
 pub use replace_file_content_procedure::replace_file_content;
 pub use replace_ticket_type::ReplaceTicket;
+pub use report_device_metrics_reducer::report_device_metrics;
 pub use request_download_url_procedure::request_download_url;
 pub use request_upload_url_procedure::request_upload_url;
 pub use reveal_secret_procedure::reveal_secret;
@@ -134,6 +156,7 @@ pub use s_3_config_type::S3Config;
 pub use search_files_procedure::search_files;
 pub use secret_metadata_type::SecretMetadata;
 pub use secret_value_type::SecretValue;
+pub use send_ui_event_reducer::send_ui_event;
 pub use session_type::Session;
 pub use set_device_hostname_reducer::set_device_hostname;
 pub use set_secret_devices_reducer::set_secret_devices;
@@ -157,6 +180,11 @@ pub use ssh_key_metadata_type::SshKeyMetadata;
 pub use ssh_key_type::SshKey;
 pub use ssh_key_value_type::SshKeyValue;
 pub use touch_device_reducer::touch_device;
+pub use ui_command_metadata_type::UiCommandMetadata;
+pub use ui_command_table::*;
+pub use ui_command_type::UiCommand;
+pub use ui_event_table::*;
+pub use ui_event_type::UiEvent;
 pub use update_api_key_permissions_reducer::update_api_key_permissions;
 pub use update_email_reducer::update_email;
 pub use update_password_reducer::update_password;
@@ -177,6 +205,10 @@ pub use user_type::User;
 /// to indicate which reducer caused the event.
 
 pub enum Reducer {
+    AckUiCommand {
+        command_id: u64,
+        device_id: u64,
+    },
     CreateFolder {
         name: String,
         tree_path: Option<String>,
@@ -202,6 +234,10 @@ pub enum Reducer {
         hash: String,
         size_bytes: u64,
     },
+    PruneDeviceMetrics {
+        device_id: u64,
+        older_than: __sdk::Timestamp,
+    },
     RegisterDevice {
         name: String,
         hostname: Option<String>,
@@ -224,8 +260,17 @@ pub enum Reducer {
         tree_path: Option<String>,
         local_path: Option<String>,
     },
+    ReportDeviceMetrics {
+        device_id: u64,
+        report: DeviceMetricsReport,
+    },
     RevokeApiKey {
         api_key_id: u64,
+    },
+    SendUiEvent {
+        target_device_id: Option<u64>,
+        kind: String,
+        payload_json: String,
     },
     SetDeviceHostname {
         device_id: u64,
@@ -341,6 +386,7 @@ impl __sdk::InModule for Reducer {
 impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
+            Reducer::AckUiCommand { .. } => "ack_ui_command",
             Reducer::CreateFolder { .. } => "create_folder",
             Reducer::DeleteDevice { .. } => "delete_device",
             Reducer::DeleteFile { .. } => "delete_file",
@@ -348,11 +394,14 @@ impl __sdk::Reducer for Reducer {
             Reducer::DeleteSshEndpoint { .. } => "delete_ssh_endpoint",
             Reducer::DeleteSshKey { .. } => "delete_ssh_key",
             Reducer::FinalizeUpload { .. } => "finalize_upload",
+            Reducer::PruneDeviceMetrics { .. } => "prune_device_metrics",
             Reducer::RegisterDevice { .. } => "register_device",
             Reducer::RegisterFile { .. } => "register_file",
             Reducer::RenameDevice { .. } => "rename_device",
             Reducer::RenameFile { .. } => "rename_file",
+            Reducer::ReportDeviceMetrics { .. } => "report_device_metrics",
             Reducer::RevokeApiKey { .. } => "revoke_api_key",
+            Reducer::SendUiEvent { .. } => "send_ui_event",
             Reducer::SetDeviceHostname { .. } => "set_device_hostname",
             Reducer::SetSecret { .. } => "set_secret",
             Reducer::SetSecretDevices { .. } => "set_secret_devices",
@@ -381,6 +430,13 @@ impl __sdk::Reducer for Reducer {
     #[allow(clippy::clone_on_copy)]
     fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
         match self {
+            Reducer::AckUiCommand {
+                command_id,
+                device_id,
+            } => __sats::bsatn::to_vec(&ack_ui_command_reducer::AckUiCommandArgs {
+                command_id: command_id.clone(),
+                device_id: device_id.clone(),
+            }),
             Reducer::CreateFolder {
                 name,
                 tree_path,
@@ -420,6 +476,13 @@ impl __sdk::Reducer for Reducer {
                 hash: hash.clone(),
                 size_bytes: size_bytes.clone(),
             }),
+            Reducer::PruneDeviceMetrics {
+                device_id,
+                older_than,
+            } => __sats::bsatn::to_vec(&prune_device_metrics_reducer::PruneDeviceMetricsArgs {
+                device_id: device_id.clone(),
+                older_than: older_than.clone(),
+            }),
             Reducer::RegisterDevice { name, hostname } => {
                 __sats::bsatn::to_vec(&register_device_reducer::RegisterDeviceArgs {
                     name: name.clone(),
@@ -458,11 +521,26 @@ impl __sdk::Reducer for Reducer {
                 tree_path: tree_path.clone(),
                 local_path: local_path.clone(),
             }),
+            Reducer::ReportDeviceMetrics { device_id, report } => {
+                __sats::bsatn::to_vec(&report_device_metrics_reducer::ReportDeviceMetricsArgs {
+                    device_id: device_id.clone(),
+                    report: report.clone(),
+                })
+            }
             Reducer::RevokeApiKey { api_key_id } => {
                 __sats::bsatn::to_vec(&revoke_api_key_reducer::RevokeApiKeyArgs {
                     api_key_id: api_key_id.clone(),
                 })
             }
+            Reducer::SendUiEvent {
+                target_device_id,
+                kind,
+                payload_json,
+            } => __sats::bsatn::to_vec(&send_ui_event_reducer::SendUiEventArgs {
+                target_device_id: target_device_id.clone(),
+                kind: kind.clone(),
+                payload_json: payload_json.clone(),
+            }),
             Reducer::SetDeviceHostname {
                 device_id,
                 hostname,
@@ -654,13 +732,17 @@ impl __sdk::Reducer for Reducer {
 #[doc(hidden)]
 pub struct DbUpdate {
     my_api_keys: __sdk::TableUpdate<ApiKeyMetadata>,
+    my_device_metrics: __sdk::TableUpdate<DeviceMetricSample>,
     my_devices: __sdk::TableUpdate<DeviceMetadata>,
     my_files: __sdk::TableUpdate<FileMetadata>,
     my_secrets: __sdk::TableUpdate<SecretMetadata>,
     my_ssh_endpoints: __sdk::TableUpdate<SshEndpointMetadata>,
     my_ssh_keys: __sdk::TableUpdate<SshKeyMetadata>,
+    my_ui_commands: __sdk::TableUpdate<UiCommandMetadata>,
     my_user: __sdk::TableUpdate<UserProfile>,
     s_3_config_status: __sdk::TableUpdate<S3ConfigStatus>,
+    ui_command: __sdk::TableUpdate<UiCommand>,
+    ui_event: __sdk::TableUpdate<UiEvent>,
 }
 
 impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
@@ -672,6 +754,9 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "my_api_keys" => db_update
                     .my_api_keys
                     .append(my_api_keys_table::parse_table_update(table_update)?),
+                "my_device_metrics" => db_update
+                    .my_device_metrics
+                    .append(my_device_metrics_table::parse_table_update(table_update)?),
                 "my_devices" => db_update
                     .my_devices
                     .append(my_devices_table::parse_table_update(table_update)?),
@@ -687,12 +772,21 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "my_ssh_keys" => db_update
                     .my_ssh_keys
                     .append(my_ssh_keys_table::parse_table_update(table_update)?),
+                "my_ui_commands" => db_update
+                    .my_ui_commands
+                    .append(my_ui_commands_table::parse_table_update(table_update)?),
                 "my_user" => db_update
                     .my_user
                     .append(my_user_table::parse_table_update(table_update)?),
                 "s_3_config_status" => db_update
                     .s_3_config_status
                     .append(s_3_config_status_table::parse_table_update(table_update)?),
+                "ui_command" => db_update
+                    .ui_command
+                    .append(ui_command_table::parse_table_update(table_update)?),
+                "ui_event" => db_update
+                    .ui_event
+                    .append(ui_event_table::parse_table_update(table_update)?),
 
                 unknown => {
                     return Err(__sdk::InternalError::unknown_name(
@@ -719,8 +813,16 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
+        diff.ui_command = cache
+            .apply_diff_to_table::<UiCommand>("ui_command", &self.ui_command)
+            .with_updates_by_pk(|row| &row.id);
+        diff.ui_event = self.ui_event.into_event_diff();
         diff.my_api_keys =
             cache.apply_diff_to_table::<ApiKeyMetadata>("my_api_keys", &self.my_api_keys);
+        diff.my_device_metrics = cache.apply_diff_to_table::<DeviceMetricSample>(
+            "my_device_metrics",
+            &self.my_device_metrics,
+        );
         diff.my_devices =
             cache.apply_diff_to_table::<DeviceMetadata>("my_devices", &self.my_devices);
         diff.my_files = cache.apply_diff_to_table::<FileMetadata>("my_files", &self.my_files);
@@ -730,6 +832,8 @@ impl __sdk::DbUpdate for DbUpdate {
             .apply_diff_to_table::<SshEndpointMetadata>("my_ssh_endpoints", &self.my_ssh_endpoints);
         diff.my_ssh_keys =
             cache.apply_diff_to_table::<SshKeyMetadata>("my_ssh_keys", &self.my_ssh_keys);
+        diff.my_ui_commands =
+            cache.apply_diff_to_table::<UiCommandMetadata>("my_ui_commands", &self.my_ui_commands);
         diff.my_user = cache.apply_diff_to_table::<UserProfile>("my_user", &self.my_user);
         diff.s_3_config_status = cache
             .apply_diff_to_table::<S3ConfigStatus>("s_3_config_status", &self.s_3_config_status);
@@ -742,6 +846,9 @@ impl __sdk::DbUpdate for DbUpdate {
             match &table_rows.table[..] {
                 "my_api_keys" => db_update
                     .my_api_keys
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "my_device_metrics" => db_update
+                    .my_device_metrics
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "my_devices" => db_update
                     .my_devices
@@ -758,11 +865,20 @@ impl __sdk::DbUpdate for DbUpdate {
                 "my_ssh_keys" => db_update
                     .my_ssh_keys
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "my_ui_commands" => db_update
+                    .my_ui_commands
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "my_user" => db_update
                     .my_user
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "s_3_config_status" => db_update
                     .s_3_config_status
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "ui_command" => db_update
+                    .ui_command
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "ui_event" => db_update
+                    .ui_event
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 unknown => {
                     return Err(
@@ -780,6 +896,9 @@ impl __sdk::DbUpdate for DbUpdate {
                 "my_api_keys" => db_update
                     .my_api_keys
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "my_device_metrics" => db_update
+                    .my_device_metrics
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "my_devices" => db_update
                     .my_devices
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -795,11 +914,20 @@ impl __sdk::DbUpdate for DbUpdate {
                 "my_ssh_keys" => db_update
                     .my_ssh_keys
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "my_ui_commands" => db_update
+                    .my_ui_commands
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "my_user" => db_update
                     .my_user
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "s_3_config_status" => db_update
                     .s_3_config_status
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "ui_command" => db_update
+                    .ui_command
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "ui_event" => db_update
+                    .ui_event
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 unknown => {
                     return Err(
@@ -817,13 +945,17 @@ impl __sdk::DbUpdate for DbUpdate {
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
     my_api_keys: __sdk::TableAppliedDiff<'r, ApiKeyMetadata>,
+    my_device_metrics: __sdk::TableAppliedDiff<'r, DeviceMetricSample>,
     my_devices: __sdk::TableAppliedDiff<'r, DeviceMetadata>,
     my_files: __sdk::TableAppliedDiff<'r, FileMetadata>,
     my_secrets: __sdk::TableAppliedDiff<'r, SecretMetadata>,
     my_ssh_endpoints: __sdk::TableAppliedDiff<'r, SshEndpointMetadata>,
     my_ssh_keys: __sdk::TableAppliedDiff<'r, SshKeyMetadata>,
+    my_ui_commands: __sdk::TableAppliedDiff<'r, UiCommandMetadata>,
     my_user: __sdk::TableAppliedDiff<'r, UserProfile>,
     s_3_config_status: __sdk::TableAppliedDiff<'r, S3ConfigStatus>,
+    ui_command: __sdk::TableAppliedDiff<'r, UiCommand>,
+    ui_event: __sdk::TableAppliedDiff<'r, UiEvent>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
 
@@ -840,6 +972,11 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         callbacks.invoke_table_row_callbacks::<ApiKeyMetadata>(
             "my_api_keys",
             &self.my_api_keys,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<DeviceMetricSample>(
+            "my_device_metrics",
+            &self.my_device_metrics,
             event,
         );
         callbacks.invoke_table_row_callbacks::<DeviceMetadata>(
@@ -863,12 +1000,19 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
             &self.my_ssh_keys,
             event,
         );
+        callbacks.invoke_table_row_callbacks::<UiCommandMetadata>(
+            "my_ui_commands",
+            &self.my_ui_commands,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<UserProfile>("my_user", &self.my_user, event);
         callbacks.invoke_table_row_callbacks::<S3ConfigStatus>(
             "s_3_config_status",
             &self.s_3_config_status,
             event,
         );
+        callbacks.invoke_table_row_callbacks::<UiCommand>("ui_command", &self.ui_command, event);
+        callbacks.invoke_table_row_callbacks::<UiEvent>("ui_event", &self.ui_event, event);
     }
 }
 
@@ -1530,22 +1674,30 @@ impl __sdk::SpacetimeModule for RemoteModule {
 
     fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
         my_api_keys_table::register_table(client_cache);
+        my_device_metrics_table::register_table(client_cache);
         my_devices_table::register_table(client_cache);
         my_files_table::register_table(client_cache);
         my_secrets_table::register_table(client_cache);
         my_ssh_endpoints_table::register_table(client_cache);
         my_ssh_keys_table::register_table(client_cache);
+        my_ui_commands_table::register_table(client_cache);
         my_user_table::register_table(client_cache);
         s_3_config_status_table::register_table(client_cache);
+        ui_command_table::register_table(client_cache);
+        ui_event_table::register_table(client_cache);
     }
     const ALL_TABLE_NAMES: &'static [&'static str] = &[
         "my_api_keys",
+        "my_device_metrics",
         "my_devices",
         "my_files",
         "my_secrets",
         "my_ssh_endpoints",
         "my_ssh_keys",
+        "my_ui_commands",
         "my_user",
         "s_3_config_status",
+        "ui_command",
+        "ui_event",
     ];
 }

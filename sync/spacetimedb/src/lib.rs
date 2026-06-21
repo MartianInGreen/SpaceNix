@@ -3,9 +3,11 @@ use spacetimedb::{ReducerContext, Table};
 pub mod api_key;
 mod config;
 mod device;
+mod device_metric;
 mod file;
 mod secret;
 mod ssh;
+mod ui_event;
 mod user;
 
 use crate::config::s3_config as _;

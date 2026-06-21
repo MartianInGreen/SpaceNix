@@ -1,5 +1,6 @@
 //! TUI entry point + screen dispatcher.
 
+use std::collections::{BTreeMap, HashSet};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +20,33 @@ use crate::auth::conn::{self, ConnState};
 use crate::bindings::*;
 use crate::config::Config;
 use crate::store::device::LocalDevice;
+
+fn format_metric_line(m: &DeviceMetricSample) -> String {
+    use crate::util::formatting;
+    let ram_pct = percent(m.ram_used_bytes, m.ram_total_bytes);
+    let swap_pct = percent(m.swap_used_bytes, m.swap_total_bytes);
+    let storage_pct = percent(m.storage_used_bytes, m.storage_total_bytes);
+    format!(
+        "cpu {:>4.1}% | ram {:>4.1}% {} | swap {:>4.1}% {} | net {}↓ {}↑ | storage {:>4.1}% {}",
+        m.cpu_percent,
+        ram_pct,
+        formatting::bytes(m.ram_used_bytes),
+        swap_pct,
+        formatting::bytes(m.swap_used_bytes),
+        formatting::bytes(m.net_rx_bytes),
+        formatting::bytes(m.net_tx_bytes),
+        storage_pct,
+        formatting::bytes(m.storage_used_bytes),
+    )
+}
+
+fn percent(used: u64, total: u64) -> f32 {
+    if total == 0 {
+        0.0
+    } else {
+        (used as f32 / total as f32) * 100.0
+    }
+}
 
 #[derive(Debug, Args, Default)]
 pub struct TuiArgs {
@@ -121,6 +149,7 @@ struct App {
     /// Files list state.
     files: ListState,
     file_items: Vec<FileRow>,
+    file_path: String,
     /// Secrets list state.
     secrets: ListState,
     secrets_items: Vec<SecretRow>,
@@ -139,6 +168,7 @@ struct App {
     /// Device list state.
     devices: ListState,
     device_items: Vec<DeviceRow>,
+    processed_ui_commands: HashSet<u64>,
     should_quit: bool,
     /// Channel of events coming from the input thread.
     events: mpsc::UnboundedReceiver<TuiEvent>,
@@ -148,10 +178,13 @@ struct App {
 
 #[derive(Clone)]
 struct FileRow {
-    id: u64,
+    id: Option<u64>,
     name: String,
-    path: String,
+    full_path: String,
     kind: String,
+    is_directory: bool,
+    is_implicit: bool,
+    selected: bool,
     size: u64,
     content_type: String,
 }
@@ -208,6 +241,7 @@ struct DeviceRow {
     name: String,
     hostname: String,
     last_seen: String,
+    metrics: Option<String>,
 }
 
 #[derive(Debug)]
@@ -253,6 +287,7 @@ impl App {
             status: "ready".to_string(),
             files: ListState::default(),
             file_items: Vec::new(),
+            file_path: String::new(),
             secrets: ListState::default(),
             secrets_items: Vec::new(),
             ssh_keys: ListState::default(),
@@ -265,6 +300,7 @@ impl App {
             token_items: Vec::new(),
             devices: ListState::default(),
             device_items: Vec::new(),
+            processed_ui_commands: HashSet::new(),
             should_quit: false,
             events: rx,
             toast: None,
@@ -293,6 +329,8 @@ impl App {
                 "SELECT * FROM my_ssh_keys",
                 "SELECT * FROM my_ssh_endpoints",
                 "SELECT * FROM my_devices",
+                "SELECT * FROM my_ui_commands",
+                "SELECT * FROM ui_event",
                 "SELECT * FROM my_user",
             ]);
         // Wait briefly for the first subscription update.
@@ -304,6 +342,7 @@ impl App {
         self.refresh_sync();
         self.refresh_tokens();
         self.refresh_devices();
+        self.process_ui_commands();
 
         while !self.should_quit {
             terminal.draw(|frame| self.render(frame))?;
@@ -318,6 +357,7 @@ impl App {
                     self.refresh_sync();
                     self.refresh_tokens();
                     self.refresh_devices();
+                    self.process_ui_commands();
                 }
                 None => return Ok(()),
             }
@@ -373,6 +413,10 @@ impl App {
         match key.code {
             KeyCode::Down | KeyCode::Char('j') => self.list_next_files(),
             KeyCode::Up | KeyCode::Char('k') => self.list_prev_files(),
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => self.open_selected_file_row(),
+            KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => self.file_parent(),
+            KeyCode::Home => self.file_root(),
+            KeyCode::Char(' ') => self.toggle_selected_file_sync(),
             _ => {}
         }
     }
@@ -446,6 +490,61 @@ impl App {
             .map(|i| (i + len - 1) % len)
             .unwrap_or(0);
         self.files.select(Some(i));
+    }
+
+    fn open_selected_file_row(&mut self) {
+        let Some(idx) = self.files.selected() else {
+            return;
+        };
+        let Some(row) = self.file_items.get(idx) else {
+            return;
+        };
+        if row.is_directory {
+            self.file_path = row.full_path.clone();
+            self.files.select(None);
+            self.refresh_files();
+            self.status = format!("opened /{}", self.file_path);
+        } else {
+            self.status = format!(
+                "file {} · {} bytes · {}",
+                row.name, row.size, row.content_type
+            );
+        }
+    }
+
+    fn file_parent(&mut self) {
+        if self.file_path.is_empty() {
+            return;
+        }
+        self.file_path = parent_path(&self.file_path).unwrap_or_default();
+        self.files.select(None);
+        self.refresh_files();
+        self.status = if self.file_path.is_empty() {
+            "opened /".to_string()
+        } else {
+            format!("opened /{}", self.file_path)
+        };
+    }
+
+    fn file_root(&mut self) {
+        self.file_path.clear();
+        self.files.select(None);
+        self.refresh_files();
+        self.status = "opened /".to_string();
+    }
+
+    fn toggle_selected_file_sync(&mut self) {
+        let Some(idx) = self.files.selected() else {
+            return;
+        };
+        let Some(row) = self.file_items.get(idx) else {
+            return;
+        };
+        let Some(id) = row.id else {
+            self.toast = Some(format!("{} is an implicit folder", row.name));
+            return;
+        };
+        self.toggle_file_sync(id);
     }
 
     fn list_next_secrets(&mut self) {
@@ -591,7 +690,10 @@ impl App {
         let Some(row) = self.sync_items.get(idx) else {
             return;
         };
-        let id = row.id;
+        self.toggle_file_sync(row.id);
+    }
+
+    fn toggle_file_sync(&mut self, id: u64) {
         let mut sel =
             crate::store::sync::SyncSelection::load(&self.config.sync_file()).unwrap_or_default();
         if let Some(file) = self.state.conn.db().my_files().iter().find(|f| f.id == id) {
@@ -615,32 +717,67 @@ impl App {
             });
         }
         self.refresh_sync();
+        self.refresh_files();
     }
 
     fn refresh_files(&mut self) {
-        let mut rows: Vec<FileRow> = self
-            .state
-            .conn
-            .db()
-            .my_files()
-            .iter()
-            .map(|f| FileRow {
-                id: f.id,
-                name: f.name.clone(),
-                path: f.tree_path.clone().unwrap_or_else(|| "(root)".into()),
-                kind: if f.is_directory {
-                    "dir".into()
-                } else {
-                    "file".into()
+        let sel =
+            crate::store::sync::SyncSelection::load(&self.config.sync_file()).unwrap_or_default();
+        let mut rows_by_path: BTreeMap<String, FileRow> = BTreeMap::new();
+        for f in self.state.conn.db().my_files().iter() {
+            let full_path = file_full_path(f.name.as_str(), f.tree_path.as_deref());
+            if let Some(child_dir) = immediate_child_dir(&self.file_path, &full_path) {
+                rows_by_path
+                    .entry(child_dir.clone())
+                    .or_insert_with(|| FileRow {
+                        id: None,
+                        name: basename(&child_dir)
+                            .unwrap_or(child_dir.as_str())
+                            .to_string(),
+                        full_path: child_dir,
+                        kind: "dir".into(),
+                        is_directory: true,
+                        is_implicit: true,
+                        selected: false,
+                        size: 0,
+                        content_type: "-".into(),
+                    });
+                continue;
+            }
+            if parent_path(&full_path).unwrap_or_default() != self.file_path {
+                continue;
+            }
+            rows_by_path.insert(
+                full_path.clone(),
+                FileRow {
+                    id: Some(f.id),
+                    name: basename(&full_path).unwrap_or(f.name.as_str()).to_string(),
+                    full_path,
+                    kind: if f.is_directory {
+                        "dir".into()
+                    } else {
+                        "file".into()
+                    },
+                    is_directory: f.is_directory,
+                    is_implicit: false,
+                    selected: sel.contains(f.id),
+                    size: f.size_bytes,
+                    content_type: f.content_type.clone().unwrap_or_else(|| "-".into()),
                 },
-                size: f.size_bytes,
-                content_type: f.content_type.clone().unwrap_or_else(|| "-".into()),
-            })
-            .collect();
-        rows.sort_by(|a, b| a.path.cmp(&b.path).then(a.name.cmp(&b.name)));
+            );
+        }
+        let mut rows: Vec<FileRow> = rows_by_path.into_values().collect();
+        rows.sort_by(|a, b| {
+            b.is_directory
+                .cmp(&a.is_directory)
+                .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
         self.file_items = rows;
-        if self.files.selected().is_none() && !self.file_items.is_empty() {
-            self.files.select(Some(0));
+        match (self.files.selected(), self.file_items.len()) {
+            (_, 0) => self.files.select(None),
+            (Some(i), len) if i >= len => self.files.select(Some(len - 1)),
+            (None, _) => self.files.select(Some(0)),
+            _ => {}
         }
     }
 
@@ -773,6 +910,14 @@ impl App {
     }
 
     fn refresh_devices(&mut self) {
+        let mut latest: std::collections::HashMap<u64, DeviceMetricSample> =
+            std::collections::HashMap::new();
+        for m in self.state.conn.db().my_device_metrics().iter() {
+            let entry = latest.entry(m.device_id).or_insert_with(|| m.clone());
+            if m.recorded_at > entry.recorded_at {
+                *entry = m.clone();
+            }
+        }
         let mut rows: Vec<DeviceRow> = self
             .state
             .conn
@@ -787,12 +932,92 @@ impl App {
                     .last_seen_at
                     .map(|ts| format!("{:?}", ts))
                     .unwrap_or_else(|| "never".into()),
+                metrics: latest.get(&d.id).map(format_metric_line),
             })
             .collect();
         rows.sort_by(|a, b| a.name.cmp(&b.name));
         self.device_items = rows;
         if self.devices.selected().is_none() && !self.device_items.is_empty() {
             self.devices.select(Some(0));
+        }
+    }
+
+    fn process_ui_commands(&mut self) {
+        let mut commands: Vec<_> = self
+            .state
+            .conn
+            .db()
+            .my_ui_commands()
+            .iter()
+            .filter(|c| c.handled_at.is_none())
+            .filter(|c| {
+                c.target_device_id
+                    .is_none_or(|target| target == self.local_device.id)
+            })
+            .filter(|c| !self.processed_ui_commands.contains(&c.id))
+            .collect();
+        commands.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+
+        for command in commands {
+            let id = command.id;
+            self.processed_ui_commands.insert(id);
+            self.apply_ui_command(command.kind.as_str(), command.payload_json.as_str());
+            if let Err(err) = self
+                .state
+                .conn
+                .reducers()
+                .ack_ui_command(id, self.local_device.id)
+            {
+                self.toast = Some(format!("failed to ack web command #{id}: {err}"));
+            }
+        }
+    }
+
+    fn apply_ui_command(&mut self, kind: &str, payload_json: &str) {
+        let payload: serde_json::Value = serde_json::from_str(payload_json).unwrap_or_default();
+        match kind {
+            "screen:open" => {
+                let Some(screen) = payload.get("screen").and_then(|v| v.as_str()) else {
+                    self.toast = Some("web command missing screen".into());
+                    return;
+                };
+                if let Some(screen) = parse_screen(screen) {
+                    self.screen = screen;
+                    self.status = format!("opened {screen:?} from web");
+                } else {
+                    self.toast = Some(format!("unknown screen from web: {screen}"));
+                }
+            }
+            "files:open_path" => {
+                let path = payload
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .trim_matches('/')
+                    .to_string();
+                self.screen = Screen::Files;
+                self.file_path = path;
+                self.files.select(None);
+                self.refresh_files();
+                self.status = if self.file_path.is_empty() {
+                    "opened / from web".into()
+                } else {
+                    format!("opened /{} from web", self.file_path)
+                };
+            }
+            "sync:refresh" => {
+                self.refresh_sync();
+                self.refresh_files();
+                self.status = "refreshed sync state from web".into();
+            }
+            "toast" => {
+                if let Some(message) = payload.get("message").and_then(|v| v.as_str()) {
+                    self.toast = Some(message.to_string());
+                }
+            }
+            _ => {
+                self.toast = Some(format!("unhandled web command: {kind}"));
+            }
         }
     }
 
@@ -871,18 +1096,32 @@ impl App {
             .file_items
             .iter()
             .map(|r| {
+                let mark = if r.selected { "[x]" } else { "[ ]" };
+                let id =
+                    r.id.map(|id| format!("#{:<6}", id))
+                        .unwrap_or_else(|| "       ".to_string());
+                let implicit = if r.is_implicit { " implicit" } else { "" };
                 ListItem::new(Line::from(vec![
-                    Span::styled(format!("#{:<6}", r.id), Style::default().fg(Color::Magenta)),
+                    Span::styled(format!("{mark} "), Style::default().fg(Color::Green)),
+                    Span::styled(id, Style::default().fg(Color::Magenta)),
                     Span::raw(format!("{:<5}", r.kind)),
                     Span::styled(format!("{:<28}", r.name), Style::default().fg(Color::Cyan)),
                     Span::raw(format!(" {:>10} bytes ", r.size)),
                     Span::raw(format!("{:<18}", r.content_type)),
-                    Span::raw(format!(" {}", r.path)),
+                    Span::styled(implicit, Style::default().fg(Color::DarkGray)),
                 ]))
             })
             .collect();
+        let title = if self.file_path.is_empty() {
+            " Files /  (Enter open, Backspace up, Space sync) ".to_string()
+        } else {
+            format!(
+                " Files /{}  (Enter open, Backspace up, Space sync) ",
+                self.file_path
+            )
+        };
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(" Files "))
+            .block(Block::default().borders(Borders::ALL).title(title))
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
             .highlight_symbol("> ");
         frame.render_stateful_widget(list, area, &mut self.files);
@@ -1018,12 +1257,24 @@ impl App {
             .device_items
             .iter()
             .map(|r| {
-                ListItem::new(Line::from(vec![
+                let mut lines = vec![Line::from(vec![
                     Span::styled(format!("#{:<6}", r.id), Style::default().fg(Color::Magenta)),
                     Span::styled(format!("{:<24}", r.name), Style::default().fg(Color::Cyan)),
                     Span::raw(format!(" host={:<24}", r.hostname)),
                     Span::raw(format!(" last_seen={}", r.last_seen)),
-                ]))
+                ])];
+                if let Some(metrics) = &r.metrics {
+                    lines.push(Line::from(Span::styled(
+                        format!("         {}", metrics),
+                        Style::default().fg(Color::Green),
+                    )));
+                } else {
+                    lines.push(Line::from(Span::styled(
+                        "         (no metrics reported yet — is the service running?)",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+                ListItem::new(lines)
             })
             .collect();
         let list = List::new(items)
@@ -1083,7 +1334,10 @@ impl App {
             Line::from("  Tab          cycle screens"),
             Line::from("  ?            this help screen"),
             Line::from("  ↑/↓  j/k     move selection"),
-            Line::from("  Space        toggle sync on/off (sync screen)"),
+            Line::from("  Enter / l    open folder or show selected file info (files)"),
+            Line::from("  Backspace/h  go to parent folder (files)"),
+            Line::from("  Home         go to root folder (files)"),
+            Line::from("  Space        toggle sync on/off (files/sync)"),
             Line::from("  q / Ctrl+C   quit"),
             Line::from(""),
             Line::from("Headless usage:"),
@@ -1111,5 +1365,64 @@ fn list_or(items: &[String], empty: &str) -> String {
         empty.to_string()
     } else {
         items.join(",")
+    }
+}
+
+fn file_full_path(name: &str, tree_path: Option<&str>) -> String {
+    match tree_path.filter(|path| !path.is_empty()) {
+        Some(path) => path.to_string(),
+        None => name.to_string(),
+    }
+}
+
+fn parent_path(path: &str) -> Option<String> {
+    let trimmed = path.trim_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    trimmed
+        .rsplit_once('/')
+        .map(|(parent, _)| parent.to_string())
+        .or_else(|| Some(String::new()))
+}
+
+fn basename(path: &str) -> Option<&str> {
+    path.trim_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+}
+
+fn immediate_child_dir(current_path: &str, full_path: &str) -> Option<String> {
+    let current = current_path.trim_matches('/');
+    let full = full_path.trim_matches('/');
+    if full.is_empty() || full == current {
+        return None;
+    }
+    let rest = if current.is_empty() {
+        full
+    } else {
+        full.strip_prefix(current)?.strip_prefix('/')?
+    };
+    let (child, _) = rest.split_once('/')?;
+    if current.is_empty() {
+        Some(child.to_string())
+    } else {
+        Some(format!("{current}/{child}"))
+    }
+}
+
+fn parse_screen(screen: &str) -> Option<Screen> {
+    match screen {
+        "files" => Some(Screen::Files),
+        "secrets" => Some(Screen::Secrets),
+        "ssh" | "ssh_keys" | "ssh-keys" => Some(Screen::SshKeys),
+        "ssh_endpoints" | "ssh-endpoints" => Some(Screen::SshEndpoints),
+        "pats" | "tokens" => Some(Screen::Tokens),
+        "devices" => Some(Screen::Devices),
+        "account" => Some(Screen::Account),
+        "sync" => Some(Screen::Sync),
+        "help" => Some(Screen::Help),
+        _ => None,
     }
 }

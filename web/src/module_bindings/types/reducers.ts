@@ -6,6 +6,7 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AckUiCommandReducer from "../ack_ui_command_reducer";
 import CreateFolderReducer from "../create_folder_reducer";
 import DeleteDeviceReducer from "../delete_device_reducer";
 import DeleteFileReducer from "../delete_file_reducer";
@@ -13,11 +14,14 @@ import DeleteSecretReducer from "../delete_secret_reducer";
 import DeleteSshEndpointReducer from "../delete_ssh_endpoint_reducer";
 import DeleteSshKeyReducer from "../delete_ssh_key_reducer";
 import FinalizeUploadReducer from "../finalize_upload_reducer";
+import PruneDeviceMetricsReducer from "../prune_device_metrics_reducer";
 import RegisterDeviceReducer from "../register_device_reducer";
 import RegisterFileReducer from "../register_file_reducer";
 import RenameDeviceReducer from "../rename_device_reducer";
 import RenameFileReducer from "../rename_file_reducer";
+import ReportDeviceMetricsReducer from "../report_device_metrics_reducer";
 import RevokeApiKeyReducer from "../revoke_api_key_reducer";
+import SendUiEventReducer from "../send_ui_event_reducer";
 import SetDeviceHostnameReducer from "../set_device_hostname_reducer";
 import SetSecretReducer from "../set_secret_reducer";
 import SetSecretDevicesReducer from "../set_secret_devices_reducer";
@@ -41,6 +45,7 @@ import UpdatePasswordReducer from "../update_password_reducer";
 import UpdateS3ConfigReducer from "../update_s_3_config_reducer";
 import UpdateSshEndpointReducer from "../update_ssh_endpoint_reducer";
 
+export type AckUiCommandParams = __Infer<typeof AckUiCommandReducer>;
 export type CreateFolderParams = __Infer<typeof CreateFolderReducer>;
 export type DeleteDeviceParams = __Infer<typeof DeleteDeviceReducer>;
 export type DeleteFileParams = __Infer<typeof DeleteFileReducer>;
@@ -48,11 +53,14 @@ export type DeleteSecretParams = __Infer<typeof DeleteSecretReducer>;
 export type DeleteSshEndpointParams = __Infer<typeof DeleteSshEndpointReducer>;
 export type DeleteSshKeyParams = __Infer<typeof DeleteSshKeyReducer>;
 export type FinalizeUploadParams = __Infer<typeof FinalizeUploadReducer>;
+export type PruneDeviceMetricsParams = __Infer<typeof PruneDeviceMetricsReducer>;
 export type RegisterDeviceParams = __Infer<typeof RegisterDeviceReducer>;
 export type RegisterFileParams = __Infer<typeof RegisterFileReducer>;
 export type RenameDeviceParams = __Infer<typeof RenameDeviceReducer>;
 export type RenameFileParams = __Infer<typeof RenameFileReducer>;
+export type ReportDeviceMetricsParams = __Infer<typeof ReportDeviceMetricsReducer>;
 export type RevokeApiKeyParams = __Infer<typeof RevokeApiKeyReducer>;
+export type SendUiEventParams = __Infer<typeof SendUiEventReducer>;
 export type SetDeviceHostnameParams = __Infer<typeof SetDeviceHostnameReducer>;
 export type SetSecretParams = __Infer<typeof SetSecretReducer>;
 export type SetSecretDevicesParams = __Infer<typeof SetSecretDevicesReducer>;

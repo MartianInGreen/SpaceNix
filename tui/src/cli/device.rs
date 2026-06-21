@@ -1,5 +1,6 @@
 //! `spacenix device …` — manage registered devices.
 
+use std::collections::HashMap;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,11 +12,15 @@ use tokio::sync::oneshot;
 use crate::auth::conn;
 use crate::bindings::*;
 use crate::config::Config;
+use crate::store::device::LocalDevice;
 
 #[derive(Debug, Subcommand)]
 pub enum DeviceCommand {
-    /// List registered devices.
+    /// List registered devices and their latest metrics.
     List,
+
+    /// Collect and report this device's current metrics, then print them.
+    Status,
 
     /// Register this or another device by name.
     Register {
@@ -46,6 +51,7 @@ pub async fn run(config: Arc<Config>, cmd: DeviceCommand) -> Result<ExitCode> {
     let state = connect(&config).await?;
     match cmd {
         DeviceCommand::List => list(&state).await,
+        DeviceCommand::Status => report_and_print(config.as_ref(), &state).await,
         DeviceCommand::Register { name, hostname } => {
             call_unit("register_device", |tx| {
                 state
@@ -130,14 +136,52 @@ async fn connect(config: &Config) -> Result<conn::ConnState> {
         .conn
         .subscription_builder()
         .on_error(|_ctx, err| tracing::error!(?err, "devices subscription error"))
-        .subscribe(["SELECT * FROM my_devices", "SELECT * FROM my_ssh_endpoints"]);
+        .subscribe([
+            "SELECT * FROM my_devices",
+            "SELECT * FROM my_ssh_endpoints",
+            "SELECT * FROM my_device_metrics",
+        ]);
     tokio::time::sleep(Duration::from_millis(400)).await;
     Ok(state)
+}
+
+fn latest_metrics_per_device(state: &conn::ConnState) -> HashMap<u64, DeviceMetricSample> {
+    let mut latest: HashMap<u64, DeviceMetricSample> = HashMap::new();
+    for m in state.conn.db().my_device_metrics().iter() {
+        let entry = latest.entry(m.device_id).or_insert_with(|| m.clone());
+        if m.recorded_at > entry.recorded_at {
+            *entry = m.clone();
+        }
+    }
+    latest
+}
+
+fn format_metrics_line(m: &DeviceMetricSample) -> String {
+    use crate::util::formatting;
+    let ram_pct = percent(m.ram_used_bytes, m.ram_total_bytes);
+    let swap_pct = percent(m.swap_used_bytes, m.swap_total_bytes);
+    let storage_pct = percent(m.storage_used_bytes, m.storage_total_bytes);
+    format!(
+        "cpu {:>5.1}% | ram {:>5.1}% ({} / {}) | swap {:>5.1}% ({} / {}) | net {}↓ {}↑ | storage {:>5.1}% ({} / {})",
+        m.cpu_percent,
+        ram_pct,
+        formatting::bytes(m.ram_used_bytes),
+        formatting::bytes(m.ram_total_bytes),
+        swap_pct,
+        formatting::bytes(m.swap_used_bytes),
+        formatting::bytes(m.swap_total_bytes),
+        formatting::bytes(m.net_rx_bytes),
+        formatting::bytes(m.net_tx_bytes),
+        storage_pct,
+        formatting::bytes(m.storage_used_bytes),
+        formatting::bytes(m.storage_total_bytes),
+    )
 }
 
 async fn list(state: &conn::ConnState) -> Result<ExitCode> {
     let mut rows: Vec<_> = state.conn.db().my_devices().iter().collect();
     rows.sort_by(|a, b| a.name.cmp(&b.name));
+    let metrics = latest_metrics_per_device(state);
     if rows.is_empty() {
         println!("(no devices)");
     } else {
@@ -145,15 +189,69 @@ async fn list(state: &conn::ConnState) -> Result<ExitCode> {
             let hostname = d.hostname.as_deref().unwrap_or("-");
             let last_seen = d
                 .last_seen_at
-                .map(|ts| format!("{:?}", ts))
+                .map(|ts| crate::util::formatting::short_ts(&ts))
                 .unwrap_or_else(|| "never".to_string());
             println!(
-                "#{:<6}\t{}\thost={}\tlast_seen={}",
+                "#{:<6}\t{:<24}\thost={:<24}\tlast_seen={}",
                 d.id, d.name, hostname, last_seen
             );
+            if let Some(m) = metrics.get(&d.id) {
+                println!("         metrics: {}", format_metrics_line(m));
+            } else {
+                println!("         metrics: (no reports yet)");
+            }
         }
     }
     Ok(ExitCode::from(0))
+}
+
+async fn report_and_print(config: &Config, state: &conn::ConnState) -> Result<ExitCode> {
+    let local = LocalDevice::load(&config.device_file())?
+        .context("no local device selected; run `spacenix` interactively first")?;
+    if state
+        .conn
+        .db()
+        .my_devices()
+        .iter()
+        .all(|d| d.id != local.id)
+    {
+        anyhow::bail!("device #{} is not owned by the current user", local.id);
+    }
+    let sample = crate::metrics::collect_once(state, local.id).await?;
+    println!("device #{} ({})", local.id, local.name);
+    println!("  cpu:     {:.1}%", sample.cpu_percent);
+    println!(
+        "  ram:     {} / {} ({:.1}%)",
+        crate::util::formatting::bytes(sample.ram_used_bytes),
+        crate::util::formatting::bytes(sample.ram_total_bytes),
+        percent(sample.ram_used_bytes, sample.ram_total_bytes)
+    );
+    println!(
+        "  swap:    {} / {} ({:.1}%)",
+        crate::util::formatting::bytes(sample.swap_used_bytes),
+        crate::util::formatting::bytes(sample.swap_total_bytes),
+        percent(sample.swap_used_bytes, sample.swap_total_bytes)
+    );
+    println!(
+        "  net:     {} rx / {} tx (cumulative)",
+        crate::util::formatting::bytes(sample.net_rx_bytes),
+        crate::util::formatting::bytes(sample.net_tx_bytes)
+    );
+    println!(
+        "  storage: {} / {} ({:.1}%)",
+        crate::util::formatting::bytes(sample.storage_used_bytes),
+        crate::util::formatting::bytes(sample.storage_total_bytes),
+        percent(sample.storage_used_bytes, sample.storage_total_bytes)
+    );
+    Ok(ExitCode::from(0))
+}
+
+fn percent(used: u64, total: u64) -> f32 {
+    if total == 0 {
+        0.0
+    } else {
+        (used as f32 / total as f32) * 100.0
+    }
 }
 
 async fn call_unit<F, E>(name: &str, invoke: F) -> Result<()>

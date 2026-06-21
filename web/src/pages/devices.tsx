@@ -1,10 +1,27 @@
 import * as React from "react";
 import { useReducer, useTable } from "spacetimedb/react";
-import { Laptop, Pencil, Activity, Plus, Server, ShieldCheck, ShieldOff, Terminal } from "lucide-react";
+import {
+  Laptop,
+  Pencil,
+  Activity,
+  Plus,
+  Server,
+  ShieldCheck,
+  ShieldOff,
+  Terminal,
+  Cpu,
+  MemoryStick,
+  HardDrive,
+  Network,
+  Clock,
+} from "lucide-react";
 
 import { reducers, tables } from "@/module_bindings";
-import type { DeviceMetadata, SshEndpointMetadata } from "@/module_bindings/types";
-import { formatTimestamp } from "@/lib/utils";
+import type {
+  DeviceMetadata,
+  SshEndpointMetadata,
+} from "@/module_bindings/types";
+import { cn, formatBytes, formatTimestamp } from "@/lib/utils";
 import { reportError, reportSuccess } from "@/lib/toast";
 import { PageHeader, EmptyState, ConfirmDelete, Spinner, ChipList } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -14,7 +31,12 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "@/lib/utils";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -32,9 +54,212 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+type MetricRow = {
+  id: bigint;
+  deviceId: bigint;
+  recordedAt: { microsSinceUnixEpoch: bigint };
+  cpuPercent: number;
+  ramUsedBytes: bigint;
+  ramTotalBytes: bigint;
+  swapUsedBytes: bigint;
+  swapTotalBytes: bigint;
+  netRxBytes: bigint;
+  netTxBytes: bigint;
+  storageUsedBytes: bigint;
+  storageTotalBytes: bigint;
+};
+
+function pickLatest(metrics: readonly MetricRow[]): Map<string, MetricRow> {
+  const map = new Map<string, MetricRow>();
+  for (const m of metrics) {
+    const key = String(m.deviceId);
+    const current = map.get(key);
+    if (!current || m.recordedAt.microsSinceUnixEpoch > current.recordedAt.microsSinceUnixEpoch) {
+      map.set(key, m);
+    }
+  }
+  return map;
+}
+
+function percent(used: bigint, total: bigint): number {
+  if (total === 0n) return 0;
+  return Number((used * 10000n) / total) / 100;
+}
+
+function fmtPct(n: number): string {
+  return `${n.toFixed(1)}%`;
+}
+
+function ageSeconds(m: { recordedAt: { microsSinceUnixEpoch: bigint } }): number {
+  const now = BigInt(Date.now()) * 1000n;
+  const micros = m.recordedAt.microsSinceUnixEpoch;
+  if (micros > now) return 0;
+  return Number((now - micros) / 1_000_000n);
+}
+
+function MetricBar({
+  label,
+  icon: Icon,
+  used,
+  total,
+  text,
+}: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  used: bigint;
+  total: bigint;
+  text?: string;
+}) {
+  const pct = Math.min(100, Math.max(0, percent(used, total)));
+  const danger = pct >= 90;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <Icon className="size-3.5" />
+          {label}
+        </span>
+        <span className="font-mono">
+          {text ?? `${formatBytes(used)} / ${formatBytes(total)}`}
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all",
+            danger ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500"
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DeviceMetricsCard({ metric }: { metric: MetricRow }) {
+  const age = ageSeconds(metric);
+  const stale = age > 90;
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Activity className="size-4 text-emerald-500" />
+          Latest metrics
+        </CardTitle>
+        <span
+          className={cn(
+            "text-xs",
+            stale ? "text-amber-500" : "text-muted-foreground"
+          )}
+        >
+          {stale ? "stale" : "live"} · {age}s ago
+        </span>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-semibold tabular-nums">
+            {fmtPct(metric.cpuPercent)}
+          </span>
+          <span className="text-sm text-muted-foreground">CPU</span>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all",
+              metric.cpuPercent >= 90
+                ? "bg-red-500"
+                : metric.cpuPercent >= 70
+                  ? "bg-amber-500"
+                  : "bg-emerald-500"
+            )}
+            style={{ width: `${Math.min(100, metric.cpuPercent)}%` }}
+          />
+        </div>
+
+        <Separator />
+
+        <MetricBar
+          label="RAM"
+          icon={MemoryStick}
+          used={metric.ramUsedBytes}
+          total={metric.ramTotalBytes}
+        />
+        <MetricBar
+          label="Swap"
+          icon={MemoryStick}
+          used={metric.swapUsedBytes}
+          total={metric.swapTotalBytes}
+        />
+        <MetricBar
+          label="Storage"
+          icon={HardDrive}
+          used={metric.storageUsedBytes}
+          total={metric.storageTotalBytes}
+        />
+
+        <Separator />
+
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Network className="size-3.5" /> Network RX (cumulative)
+            </div>
+            <div className="font-mono">{formatBytes(metric.netRxBytes)}</div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Network className="size-3.5" /> Network TX (cumulative)
+            </div>
+            <div className="font-mono">{formatBytes(metric.netTxBytes)}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 pt-1 text-[11px] text-muted-foreground">
+          <Clock className="size-3" />
+          Reported {formatTimestamp(metric.recordedAt)}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetricsSummaryCell({ metric }: { metric: MetricRow | undefined }) {
+  if (!metric) {
+    return <span className="text-xs text-muted-foreground">no reports yet</span>;
+  }
+  const age = ageSeconds(metric);
+  const stale = age > 90;
+  const ramPct = percent(metric.ramUsedBytes, metric.ramTotalBytes);
+  return (
+    <div className="space-y-0.5 text-xs">
+      <div className="flex items-center gap-2">
+        <Cpu className="size-3 text-muted-foreground" />
+        <span className="font-mono">{fmtPct(metric.cpuPercent)}</span>
+        <span className="text-muted-foreground">cpu</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <MemoryStick className="size-3 text-muted-foreground" />
+        <span className="font-mono">{fmtPct(ramPct)}</span>
+        <span className="text-muted-foreground">
+          ram · {formatBytes(metric.ramUsedBytes)}
+        </span>
+      </div>
+      <div
+        className={cn(
+          "text-[10px]",
+          stale ? "text-amber-500" : "text-muted-foreground"
+        )}
+      >
+        {stale ? "stale" : "live"} · {age}s ago
+      </div>
+    </div>
+  );
+}
+
 export function DevicesPage() {
   const [rows, ready] = useTable(tables.my_devices);
   const [sshEndpointRows] = useTable(tables.my_ssh_endpoints);
+  const [metricRows] = useTable(tables.my_device_metrics);
   const registerDevice = useReducer(reducers.registerDevice);
   const renameDevice = useReducer(reducers.renameDevice);
   const setDeviceHostname = useReducer(reducers.setDeviceHostname);
@@ -46,10 +271,16 @@ export function DevicesPage() {
   const [registerOpen, setRegisterOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DeviceMetadata | null>(null);
   const [sshFor, setSshFor] = React.useState<DeviceMetadata | null>(null);
+  const [metricsFor, setMetricsFor] = React.useState<DeviceMetadata | null>(null);
 
   const devices = React.useMemo(
     () => [...rows].sort((a, b) => Number(b.createdAt.microsSinceUnixEpoch - a.createdAt.microsSinceUnixEpoch)),
     [rows]
+  );
+
+  const latestByDevice = React.useMemo(
+    () => pickLatest(metricRows as readonly MetricRow[]),
+    [metricRows]
   );
 
   const endpointsForDevice = React.useCallback(
@@ -106,6 +337,12 @@ export function DevicesPage() {
         }}
       />
 
+      <DeviceMetricsDialog
+        device={metricsFor}
+        metric={metricsFor ? latestByDevice.get(String(metricsFor.id)) : undefined}
+        onOpenChange={(o) => !o && setMetricsFor(null)}
+      />
+
       {!ready ? (
         <div className="flex justify-center p-10 text-muted-foreground">
           <Spinner className="size-5" />
@@ -130,8 +367,9 @@ export function DevicesPage() {
                 <TableHead>Hostname</TableHead>
                 <TableHead>SSH</TableHead>
                 <TableHead>Last seen</TableHead>
+                <TableHead>Metrics</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-32 text-right">Actions</TableHead>
+                <TableHead className="w-40 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -139,6 +377,7 @@ export function DevicesPage() {
                 const id = String(d.id);
                 const eps = endpointsForDevice(id);
                 const enabledCount = eps.filter((e) => e.enabled).length;
+                const metric = latestByDevice.get(id);
                 return (
                   <TableRow key={id}>
                     <TableCell className="font-medium">{d.name}</TableCell>
@@ -177,6 +416,17 @@ export function DevicesPage() {
                       ) : (
                         <span className="text-muted-foreground">never</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto items-start justify-start px-2 py-1.5 text-left"
+                        onClick={() => setMetricsFor(d)}
+                        title="View device metrics"
+                      >
+                        <MetricsSummaryCell metric={metric} />
+                      </Button>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatTimestamp(d.createdAt)}</TableCell>
                     <TableCell className="text-right">
@@ -484,6 +734,51 @@ function DeviceSshDialog({
           </div>
         )}
 
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeviceMetricsDialog({
+  device,
+  metric,
+  onOpenChange,
+}: {
+  device: DeviceMetadata | null;
+  metric: MetricRow | undefined;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={device !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Laptop className="size-4" />
+            {device?.name ?? ""}
+          </DialogTitle>
+          <DialogDescription>
+            {device?.hostname ? (
+              <span className="font-mono">{device.hostname}</span>
+            ) : (
+              "No hostname set"
+            )}{" "}
+            · id #{device ? String(device.id) : ""}
+          </DialogDescription>
+        </DialogHeader>
+        {metric ? (
+          <DeviceMetricsCard metric={metric} />
+        ) : (
+          <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            No metrics have been reported for this device yet. The
+            <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono text-xs">spacenix service</code>
+            worker must be running on the device to send periodic samples.
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close

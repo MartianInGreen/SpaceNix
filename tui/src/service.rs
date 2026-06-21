@@ -83,8 +83,38 @@ async fn start(config: Arc<Config>, port: Option<u16>) -> Result<ExitCode> {
         }
     };
 
-    let app = crate::http::router(state);
+    let app = crate::http::router(Arc::clone(&config), state.clone());
     let server = axum::serve(listener, app);
+
+    let (metrics_cancel_tx, metrics_cancel_rx) = tokio::sync::oneshot::channel();
+    let metrics_handle = match state.as_ref() {
+        Some(state) => match crate::store::device::LocalDevice::load(&config.device_file()) {
+            Ok(Some(local)) => {
+                let state = Arc::clone(state);
+                let local_clone = local.clone();
+                Some(tokio::spawn(async move {
+                    if let Err(err) =
+                        crate::metrics::run_reporter(state, local_clone, metrics_cancel_rx).await
+                    {
+                        tracing::warn!(?err, "metrics reporter exited with error");
+                    }
+                }))
+            }
+            Ok(None) => {
+                eprintln!(
+                    "warning: no local device selected; metrics reporter disabled \
+                     (run `spacenix` once interactively to pick a device)"
+                );
+                None
+            }
+            Err(err) => {
+                eprintln!("warning: could not read device selection: {err:#}");
+                None
+            }
+        },
+        None => None,
+    };
+
     let shutdown = async {
         if let Ok(()) = signal::ctrl_c().await {
             tracing::info!("ctrl-c received; shutting down service");
@@ -93,6 +123,11 @@ async fn start(config: Arc<Config>, port: Option<u16>) -> Result<ExitCode> {
     tokio::select! {
         res = server => res.context("service server error")?,
         _ = shutdown => {}
+    }
+
+    if let Some(handle) = metrics_handle {
+        let _ = metrics_cancel_tx.send(());
+        let _ = handle.await;
     }
 
     let _ = std::fs::remove_file(&lock_path);

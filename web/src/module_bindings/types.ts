@@ -61,6 +61,51 @@ export const DeviceMetadata = __t.object("DeviceMetadata", {
 });
 export type DeviceMetadata = __Infer<typeof DeviceMetadata>;
 
+export const DeviceMetric = __t.object("DeviceMetric", {
+  id: __t.u64(),
+  deviceId: __t.u64(),
+  recordedAt: __t.timestamp(),
+  cpuPercent: __t.f32(),
+  ramUsedBytes: __t.u64(),
+  ramTotalBytes: __t.u64(),
+  swapUsedBytes: __t.u64(),
+  swapTotalBytes: __t.u64(),
+  netRxBytes: __t.u64(),
+  netTxBytes: __t.u64(),
+  storageUsedBytes: __t.u64(),
+  storageTotalBytes: __t.u64(),
+});
+export type DeviceMetric = __Infer<typeof DeviceMetric>;
+
+export const DeviceMetricSample = __t.object("DeviceMetricSample", {
+  id: __t.u64(),
+  deviceId: __t.u64(),
+  recordedAt: __t.timestamp(),
+  cpuPercent: __t.f32(),
+  ramUsedBytes: __t.u64(),
+  ramTotalBytes: __t.u64(),
+  swapUsedBytes: __t.u64(),
+  swapTotalBytes: __t.u64(),
+  netRxBytes: __t.u64(),
+  netTxBytes: __t.u64(),
+  storageUsedBytes: __t.u64(),
+  storageTotalBytes: __t.u64(),
+});
+export type DeviceMetricSample = __Infer<typeof DeviceMetricSample>;
+
+export const DeviceMetricsReport = __t.object("DeviceMetricsReport", {
+  cpuPercent: __t.f32(),
+  ramUsedBytes: __t.u64(),
+  ramTotalBytes: __t.u64(),
+  swapUsedBytes: __t.u64(),
+  swapTotalBytes: __t.u64(),
+  netRxBytes: __t.u64(),
+  netTxBytes: __t.u64(),
+  storageUsedBytes: __t.u64(),
+  storageTotalBytes: __t.u64(),
+});
+export type DeviceMetricsReport = __Infer<typeof DeviceMetricsReport>;
+
 export const FileMetadata = __t.object("FileMetadata", {
   id: __t.u64(),
   name: __t.string(),
@@ -219,6 +264,40 @@ export const SshKeyValue = __t.object("SshKeyValue", {
   updatedAt: __t.timestamp(),
 });
 export type SshKeyValue = __Infer<typeof SshKeyValue>;
+
+export const UiCommand = __t.object("UiCommand", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  targetDeviceId: __t.option(__t.u64()),
+  kind: __t.string(),
+  payloadJson: __t.string(),
+  createdAt: __t.timestamp(),
+  handledAt: __t.option(__t.timestamp()),
+  handledByDeviceId: __t.option(__t.u64()),
+});
+export type UiCommand = __Infer<typeof UiCommand>;
+
+export const UiCommandMetadata = __t.object("UiCommandMetadata", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  targetDeviceId: __t.option(__t.u64()),
+  kind: __t.string(),
+  payloadJson: __t.string(),
+  createdAt: __t.timestamp(),
+  handledAt: __t.option(__t.timestamp()),
+  handledByDeviceId: __t.option(__t.u64()),
+});
+export type UiCommandMetadata = __Infer<typeof UiCommandMetadata>;
+
+export const UiEvent = __t.object("UiEvent", {
+  owner: __t.identity(),
+  targetDeviceId: __t.option(__t.u64()),
+  commandId: __t.option(__t.u64()),
+  kind: __t.string(),
+  payloadJson: __t.string(),
+  createdAt: __t.timestamp(),
+});
+export type UiEvent = __Infer<typeof UiEvent>;
 
 export const UploadTicket = __t.object("UploadTicket", {
   fileId: __t.u64(),

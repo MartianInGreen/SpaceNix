@@ -22,11 +22,13 @@ use serde::{Deserialize, Serialize};
 use crate::bindings::*;
 
 use crate::auth::conn::ConnState;
+use crate::config::Config;
+use crate::store::sync::SelectedFile;
 use crate::store::sync::SyncSelection;
 
 pub type SharedConn = Option<Arc<ConnState>>;
 
-pub fn router(conn: SharedConn) -> Router {
+pub fn router(config: Arc<Config>, conn: SharedConn) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/whoami", get(whoami))
@@ -37,11 +39,12 @@ pub fn router(conn: SharedConn) -> Router {
         )
         .route("/files", get(list_files))
         .route("/sync", get(sync_status).post(sync_toggle))
-        .with_state(AppState { conn })
+        .with_state(AppState { config, conn })
 }
 
 #[derive(Clone)]
 struct AppState {
+    config: Arc<Config>,
     conn: SharedConn,
 }
 
@@ -271,11 +274,14 @@ async fn list_files(
     Ok(Json(rows))
 }
 
-async fn sync_status() -> Result<Json<SyncSelection>, axum::http::StatusCode> {
-    // The service doesn't track which config it was started with; the CLI
-    // reads from disk directly. We return an empty selection here and let
-    // the CLI append to it via the service.
-    Ok(Json(SyncSelection::default()))
+async fn sync_status(
+    State(state): State<AppState>,
+) -> Result<Json<SyncSelection>, axum::http::StatusCode> {
+    let selection = SyncSelection::load(&state.config.sync_file()).map_err(|err| {
+        tracing::error!(?err, "loading sync selection");
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(Json(selection))
 }
 
 #[derive(Deserialize)]
@@ -284,8 +290,35 @@ struct SyncToggleBody {
     id: u64,
 }
 
-async fn sync_toggle(Json(_body): Json<SyncToggleBody>) -> axum::http::StatusCode {
-    // The actual selection file is owned by the user; the service can be
-    // queried but mutations go through the CLI which writes sync.toml.
-    axum::http::StatusCode::NOT_IMPLEMENTED
+async fn sync_toggle(
+    State(state): State<AppState>,
+    Json(body): Json<SyncToggleBody>,
+) -> axum::http::StatusCode {
+    let Some(conn) = state.conn.as_ref() else {
+        return axum::http::StatusCode::SERVICE_UNAVAILABLE;
+    };
+    let Some(row) = conn.conn.db().my_files().iter().find(|f| f.id == body.id) else {
+        return axum::http::StatusCode::NOT_FOUND;
+    };
+    let mut selection = match SyncSelection::load(&state.config.sync_file()) {
+        Ok(selection) => selection,
+        Err(err) => {
+            tracing::error!(?err, "loading sync selection");
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+        }
+    };
+    let selected = SelectedFile {
+        id: row.id,
+        path: row.tree_path.clone(),
+        name: row.name.clone(),
+        is_directory: row.is_directory,
+        local_path: None,
+        added_at: chrono::Utc::now(),
+    };
+    selection.toggle(&selected);
+    if let Err(err) = selection.save(&state.config.sync_file()) {
+        tracing::error!(?err, "saving sync selection");
+        return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+    }
+    axum::http::StatusCode::NO_CONTENT
 }
