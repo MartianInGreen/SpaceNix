@@ -71,86 +71,17 @@ import * as SearchFilesProcedure from "./search_files_procedure";
 import * as UpdateS3ConfigWithCredentialsProcedure from "./update_s_3_config_with_credentials_procedure";
 
 // Import all table schema definitions
-import DeviceRow from "./device_table";
 import MyApiKeysRow from "./my_api_keys_table";
 import MyDevicesRow from "./my_devices_table";
 import MyFilesRow from "./my_files_table";
 import MySecretsRow from "./my_secrets_table";
 import MyUserRow from "./my_user_table";
-import PasswordRow from "./password_table";
-import PersonRow from "./person_table";
 import S3ConfigStatusRow from "./s_3_config_status_table";
-import UserRow from "./user_table";
-import UserFileRow from "./user_file_table";
 
 /** Type-only namespace exports for generated type groups. */
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
-  device: __table({
-    name: 'device',
-    indexes: [
-      { accessor: 'id', name: 'device_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'owner', name: 'device_owner_idx_btree', algorithm: 'btree', columns: [
-        'owner',
-      ] },
-    ],
-    constraints: [
-      { name: 'device_id_key', constraint: 'unique', columns: ['id'] },
-    ],
-  }, DeviceRow),
-  password: __table({
-    name: 'password',
-    indexes: [
-      { accessor: 'user', name: 'password_user_idx_btree', algorithm: 'btree', columns: [
-        'user',
-      ] },
-    ],
-    constraints: [
-      { name: 'password_user_key', constraint: 'unique', columns: ['user'] },
-    ],
-  }, PasswordRow),
-  person: __table({
-    name: 'person',
-    indexes: [
-    ],
-    constraints: [
-    ],
-  }, PersonRow),
-  user: __table({
-    name: 'user',
-    indexes: [
-      { accessor: 'email', name: 'user_email_idx_btree', algorithm: 'btree', columns: [
-        'email',
-      ] },
-      { accessor: 'identity', name: 'user_identity_idx_btree', algorithm: 'btree', columns: [
-        'identity',
-      ] },
-    ],
-    constraints: [
-      { name: 'user_email_key', constraint: 'unique', columns: ['email'] },
-      { name: 'user_identity_key', constraint: 'unique', columns: ['identity'] },
-    ],
-  }, UserRow),
-  user_file: __table({
-    name: 'user_file',
-    indexes: [
-      { accessor: 'id', name: 'user_file_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'name', name: 'user_file_name_idx_btree', algorithm: 'btree', columns: [
-        'name',
-      ] },
-      { accessor: 'owner', name: 'user_file_owner_idx_btree', algorithm: 'btree', columns: [
-        'owner',
-      ] },
-    ],
-    constraints: [
-      { name: 'user_file_id_key', constraint: 'unique', columns: ['id'] },
-    ],
-  }, UserFileRow),
   my_api_keys: __table({
     name: 'my_api_keys',
     indexes: [

@@ -10,7 +10,7 @@ mod user;
 use crate::config::s3_config as _;
 use crate::user::session as _;
 
-#[spacetimedb::table(accessor = person, public)]
+#[spacetimedb::table(accessor = person)]
 pub struct Person {
     name: String,
 }

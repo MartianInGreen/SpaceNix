@@ -9,7 +9,7 @@ const PASSWORD_MAX_LEN: usize = 256;
 const EMAIL_MAX_LEN: usize = 254;
 const DISPLAY_NAME_MAX_LEN: usize = 128;
 
-#[spacetimedb::table(accessor = user, public)]
+#[spacetimedb::table(accessor = user)]
 pub struct User {
     #[primary_key]
     pub identity: Identity,
@@ -29,7 +29,7 @@ pub struct Session {
     pub created_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = password, public)]
+#[spacetimedb::table(accessor = password)]
 pub struct PasswordCredential {
     #[primary_key]
     pub user: Identity,

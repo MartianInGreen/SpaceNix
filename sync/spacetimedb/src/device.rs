@@ -2,7 +2,7 @@ use spacetimedb::{Identity, ReducerContext, SpacetimeType, Table, Timestamp, Vie
 
 use crate::user::{require_registered_user, session__view as _};
 
-#[spacetimedb::table(accessor = device, public)]
+#[spacetimedb::table(accessor = device)]
 pub struct Device {
     #[primary_key]
     #[auto_inc]

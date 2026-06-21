@@ -14,7 +14,7 @@ type HmacSha256 = Hmac<Sha256>;
 const UPLOAD_URL_TTL_SECS: u64 = 900;
 const DOWNLOAD_URL_TTL_SECS: u64 = 300;
 
-#[spacetimedb::table(accessor = user_file, public)]
+#[spacetimedb::table(accessor = user_file)]
 pub struct UserFile {
     #[primary_key]
     #[auto_inc]
